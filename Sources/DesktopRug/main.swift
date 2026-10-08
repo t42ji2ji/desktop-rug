@@ -146,8 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func hideRug() {
         save()
-        view.hideRug()
         defaults.set(true, forKey: "hidden")
+        view.stowRug {}
     }
 
     @objc func showRug() {
@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、旋轉、縮放", action: nil, keyEquivalent: "")
+        let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、縮放、換花色", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
         menu.addItem(withTitle: "結束", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

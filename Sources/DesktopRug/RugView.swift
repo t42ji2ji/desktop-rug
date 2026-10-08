@@ -24,7 +24,6 @@ final class RugView: MTKView {
         case grab
         case move(start: SIMD2<Float>, from: RugPlacement)
         case resize(corner: Int, from: RugPlacement)
-        case rotate(start: SIMD2<Float>, from: RugPlacement)
     }
     private var drag: Drag?
 
@@ -61,6 +60,45 @@ final class RugView: MTKView {
         renderer.cloth = c
         updateProjection()
         needsDraw = true
+    }
+
+    /// 收起動畫：右半翻到左半上、上半往下對折、縮小消失，播完才真的收起。
+    private var stow: (frame: Int, base: RugPlacement, done: () -> Void)?
+
+    func stowRug(then done: @escaping () -> Void) {
+        guard let cloth, stow == nil else { return }
+        var p = cloth.fittedPlacement()
+        p.angle = 0
+        cloth.release()
+        drag = nil
+        stickyEdit = false
+        stow = (0, p, done)
+    }
+
+    private func stepStow() {
+        guard var s = stow, let cloth else { return }
+        s.frame += 1
+        stow = s
+        let t = Float(s.frame) / 60
+        func ease(_ x: Float) -> Float { let c = min(max(x, 0), 1); return c * c * (3 - 2 * c) }
+        let a1 = ease(t / 0.45) * .pi, a2 = ease((t - 0.45) / 0.45) * .pi
+        let shrink = 1 - ease((t - 0.95) / 0.35)
+        let p = s.base, th: Float = 4
+        cloth.pose { uv in
+            var x = (uv.x - 0.5) * p.size.x, y = (uv.y - 0.5) * p.size.y, z: Float = 0
+            // 1. 沿垂直中線把右半翻過來
+            if x > 0 { let r = x; x = r * cos(a1); z = r * sin(a1) + th * a1 / .pi }
+            // 2. 疊好的兩層再沿水平中線把上半往下折
+            if y > 0 { let r = y, zz = z; y = r * cos(a2) - zz * sin(a2); z = r * sin(a2) + zz * cos(a2) + 2 * th * a2 / .pi }
+            // 3. 縮小收走（往左下那一塊的中心縮）
+            let anchor = SIMD2<Float>(-p.size.x / 4, -p.size.y / 4)
+            let q = anchor + (SIMD2(x, y) - anchor) * shrink
+            let w = p.center + p.axisX * q.x + p.axisY * q.y
+            return SIMD3(w.x, w.y, z * shrink)
+        }
+        updateProjection()
+        needsDraw = true
+        if t >= 1.3 { stow = nil; hideRug(); s.done() }
     }
 
     func hideRug() {
@@ -124,10 +162,11 @@ final class RugView: MTKView {
                 icons += [p.point(u: 0.55, v: 0.7), p.point(u: 0.62, v: 0.7)]
                 setFloor(HeightField.fromIcons(icons, iconSize: 64, origin: .zero, size: viewSize))
             }
+        case "stow":
+            if demoFrame == 30 { stowRug {} }
         case "edit":
             editMode = true
-            angleLabel = "11°"; activeCorner = 2
-            if demoFrame == 1 { cloth.flatten(to: RugPlacement(center: p.center, angle: 11 * .pi / 180, size: p.size)) }
+            activeCorner = 2
             needsDraw = true
         default: break
         }
@@ -153,7 +192,9 @@ final class RugView: MTKView {
             stickyEdit = false
         }
 
-        if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
+        if stow != nil {
+            stepStow()
+        } else if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
             cloth.step(dt: 1.0 / 60)
             updateProjection()
             needsDraw = true
@@ -166,8 +207,8 @@ final class RugView: MTKView {
         if needsDraw {
             needsDraw = false
             draw()
-            overlay.update(placement: editMode ? cloth?.fittedPlacement() : nil,
-                           activeCorner: activeCorner, angleLabel: angleLabel, cursor: m)
+            overlay.update(placement: editMode && stow == nil ? cloth?.fittedPlacement() : nil,
+                           activeCorner: activeCorner)
         }
     }
 
@@ -192,19 +233,13 @@ final class RugView: MTKView {
 
     // MARK: 編輯模式（按著 ⌥）
 
-    private enum EditTarget { case corner(Int), rotate(Int), body }
+    private enum EditTarget { case corner(Int), body }
     private var activeCorner: Int?
-    private var angleLabel: String?
 
     private func editTarget(at q: SIMD2<Float>) -> EditTarget? {
         guard let p = cloth?.fittedPlacement() else { return nil }
         let corners = p.corners
         for (k, c) in corners.enumerated() where simd_distance(c, q) < 9 { return .corner(k) }
-        for (k, c) in corners.enumerated() where simd_distance(c, q) < 32 {
-            // 角落外側那一圈 = 旋轉
-            let local = SIMD2(simd_dot(q - p.center, p.axisX), simd_dot(q - p.center, p.axisY))
-            if abs(local.x) > p.size.x / 2 - 2 || abs(local.y) > p.size.y / 2 - 2 { return .rotate(k) }
-        }
         let local = SIMD2(simd_dot(q - p.center, p.axisX), simd_dot(q - p.center, p.axisY))
         if abs(local.x) <= p.size.x / 2 && abs(local.y) <= p.size.y / 2 { return .body }
         return nil
@@ -213,16 +248,16 @@ final class RugView: MTKView {
     // MARK: 滑鼠
 
     override func mouseDown(with e: NSEvent) {
-        guard let cloth else { return }
+        guard let cloth, stow == nil else { return }
         let m = convert(e.locationInWindow, from: nil)
         let q = SIMD2(Float(m.x), Float(m.y))
         if editMode {
             guard let target = editTarget(at: q) else { return }
-            let p = cloth.fittedPlacement()
+            var p = cloth.fittedPlacement()
+            p.angle = 0
             cloth.flatten(to: p)
             switch target {
             case .corner(let k): drag = .resize(corner: k, from: p); activeCorner = k; NSCursor.crosshair.push()
-            case .rotate(let k): drag = .rotate(start: q, from: p); activeCorner = k; NSCursor.crosshair.push()
             case .body: drag = .move(start: q, from: p); NSCursor.closedHand.push()
             }
         } else {
@@ -237,6 +272,7 @@ final class RugView: MTKView {
     override func rightMouseDown(with e: NSEvent) {
         let m = convert(e.locationInWindow, from: nil)
         let q = SIMD2(Float(m.x), Float(m.y))
+        guard stow == nil else { return }
         if stickyEdit { stickyEdit = false } else if clothHit(q) { stickyEdit = true }
         needsDraw = true
     }
@@ -253,16 +289,6 @@ final class RugView: MTKView {
             cloth.flatten(to: p)
         case .resize(let k, let p):
             cloth.flatten(to: resized(p, corner: k, to: q))
-        case .rotate(let start, var p):
-            let a0 = atan2(start.y - p.center.y, start.x - p.center.x)
-            let a1 = atan2(q.y - p.center.y, q.x - p.center.x)
-            var deg = (p.angle + a1 - a0) * 180 / .pi
-            deg = remainder(deg, 360)
-            let snap = (deg / 90).rounded() * 90
-            if abs(deg - snap) < 2 { deg = snap }
-            p.angle = deg * .pi / 180
-            angleLabel = "\(Int(deg.rounded()))°"
-            cloth.flatten(to: p)
         }
         updateProjection()
         needsDraw = true
@@ -273,7 +299,6 @@ final class RugView: MTKView {
         NSCursor.pop()
         drag = nil
         activeCorner = nil
-        angleLabel = nil
         needsDraw = true
         if case .grab = d { cloth?.release(); saveWhenSettled = true } else { onChange?() }
     }

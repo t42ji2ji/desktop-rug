@@ -1,12 +1,10 @@
 import AppKit
 import RugSim
 
-/// 按著 ⌥ 時疊在地毯上的控制點、角度標籤、下方的「花色／刪除」工具列。
+/// 編輯模式（右鍵或按著 ⌥）疊在地毯上的控制點、下方的「花色／收起」工具列。
 final class EditOverlay: NSView {
     private var placement: RugPlacement?
     private var activeCorner: Int?
-    private var angleLabel: String?
-    private var cursor = CGPoint.zero
     let toolbar = NSVisualEffectView()
     let designButton = NSButton()
     let trashButton = NSButton()
@@ -51,11 +49,9 @@ final class EditOverlay: NSView {
 
     func toolbarHit(_ p: CGPoint) -> Bool { !toolbar.isHidden && toolbar.frame.contains(p) }
 
-    func update(placement: RugPlacement?, activeCorner: Int?, angleLabel: String?, cursor: CGPoint) {
+    func update(placement: RugPlacement?, activeCorner: Int?) {
         self.placement = placement
         self.activeCorner = activeCorner
-        self.angleLabel = angleLabel
-        self.cursor = cursor
         if let p = placement {
             let lowest = p.corners.map(\.y).min()!
             toolbar.setFrameOrigin(NSPoint(x: CGFloat(p.center.x) - toolbar.frame.width / 2,
@@ -77,17 +73,6 @@ final class EditOverlay: NSView {
             NSColor.black.withAlphaComponent(0.35).setStroke()
             dot.lineWidth = 0.75
             dot.stroke()
-        }
-        if let label = angleLabel {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white,
-            ]
-            let s = NSAttributedString(string: label, attributes: attrs)
-            let size = s.size()
-            let box = NSRect(x: cursor.x + 14, y: cursor.y - 22, width: size.width + 12, height: size.height + 6)
-            NSColor.black.withAlphaComponent(0.7).setFill()
-            NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
-            s.draw(at: NSPoint(x: box.minX + 6, y: box.minY + 3))
         }
     }
 }

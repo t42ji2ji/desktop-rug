@@ -185,12 +185,46 @@ public final class Cloth {
         }
         var m: Float = 0
         for k in pos.indices { m = max(m, simd_length(pos[k] - start[k])) }
+        if grabbed == nil { straighten() }
         lastMotion = m
         calmFrames = (m < 0.6 && grabbed == nil) ? calmFrames + 1 : 0
     }
 
-    /// 有人抓著、或還在動，就要繼續跑。
-    public var isSettled: Bool { grabbed == nil && (lastMotion < 0.02 || calmFrames > 40) }
+    /// 有人抓著、或還在動、或還沒轉正，就要繼續跑。
+    public var isSettled: Bool {
+        grabbed == nil && abs(tilt()) < 0.003 && (lastMotion < 0.02 || calmFrames > 40)
+    }
+
+    /// 地毯整體轉了多少（弧度）：目前形狀對攤平形狀的最佳旋轉（2D Kabsch），折起來的角影響不大。
+    public func tilt() -> Float {
+        var c = SIMD2<Float>(0, 0)
+        for p in pos { c += SIMD2(p.x, p.y) }
+        c /= Float(pos.count)
+        var sc: Float = 0, cc: Float = 0
+        for k in pos.indices {
+            let r = SIMD2((uv[k].x - 0.5) * restSize.x, (uv[k].y - 0.5) * restSize.y)
+            let q = SIMD2(pos[k].x, pos[k].y) - c
+            cc += r.x * q.x + r.y * q.y
+            sc += r.x * q.y - r.y * q.x
+        }
+        return atan2(sc, cc)
+    }
+
+    /// 放手後整張（連折角一起）剛體轉回正向，每個 frame 轉回一部分。
+    private func straighten() {
+        let a = tilt()
+        if abs(a) < 0.003 { return }
+        let step = -a * 0.15
+        var c = SIMD2<Float>(0, 0)
+        for p in pos { c += SIMD2(p.x, p.y) }
+        c /= Float(pos.count)
+        let cs = cos(step), sn = sin(step)
+        func rot(_ p: SIMD3<Float>) -> SIMD3<Float> {
+            let d = SIMD2(p.x, p.y) - c
+            return SIMD3(c.x + d.x * cs - d.y * sn, c.y + d.x * sn + d.y * cs, p.z)
+        }
+        for k in pos.indices { pos[k] = rot(pos[k]); prev[k] = rot(prev[k]) }
+    }
 
     private func integrate(_ h: Float) {
         let gStep = params.gravity * h * h
@@ -318,6 +352,12 @@ public final class Cloth {
         let tt = (v0.x * v2.y - v2.x * v0.y) / den
         if s < -m || tt < -m || s + tt > 1 + m { return nil }
         return a.z + s * (b.z - a.z) + tt * (c.z - a.z)
+    }
+
+    /// 直接擺姿勢（動畫用），不跑物理。
+    public func pose(_ f: (SIMD2<Float>) -> SIMD3<Float>) {
+        for k in pos.indices { pos[k] = f(uv[k]) }
+        prev = pos
     }
 
     // MARK: 給畫面用
