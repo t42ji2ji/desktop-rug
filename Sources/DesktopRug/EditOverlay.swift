@@ -7,6 +7,10 @@ final class EditOverlay: NSView {
     private var activeCorner: Int?
     let toolbar = NSVisualEffectView()
     private let row = NSStackView()
+    private let catRow = NSStackView()
+    private let rows = NSStackView()
+    var onToggleCat: ((String) -> Void)?
+    private var catButtons: [(name: String, button: NSButton)] = []
     let trashButton = NSButton()
     let addButton = NSButton()
     var onPick: ((String) -> Void)?
@@ -42,8 +46,15 @@ final class EditOverlay: NSView {
 
         row.orientation = .horizontal
         row.spacing = 6
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
-        toolbar.addSubview(row)
+        catRow.orientation = .horizontal
+        catRow.spacing = 6
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 6
+        rows.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        rows.addArrangedSubview(row)
+        rows.addArrangedSubview(catRow)
+        toolbar.addSubview(rows)
         addSubview(toolbar)
     }
 
@@ -94,10 +105,50 @@ final class EditOverlay: NSView {
         row.addArrangedSubview(divider)
         row.addArrangedSubview(trashButton)
         select(selected)
-        row.layoutSubtreeIfNeeded()
-        let size = row.fittingSize
-        row.frame = NSRect(origin: .zero, size: size)
+        relayout()
+    }
+
+    private func relayout() {
+        rows.layoutSubtreeIfNeeded()
+        let size = rows.fittingSize
+        rows.frame = NSRect(origin: .zero, size: size)
         toolbar.frame.size = size
+    }
+
+    /// 第二列：每隻貓一個頭像，點了切換顯示
+    func setCats(_ items: [(name: String, image: NSImage)], visible: Set<String>) {
+        for v in catRow.arrangedSubviews { catRow.removeArrangedSubview(v); v.removeFromSuperview() }
+        catButtons = []
+        for item in items {
+            let b = NSButton()
+            b.isBordered = false
+            b.imagePosition = .imageOnly
+            b.imageScaling = .scaleProportionallyUpOrDown
+            b.image = item.image
+            b.target = self
+            b.action = #selector(catToggled(_:))
+            b.wantsLayer = true
+            b.layer?.cornerRadius = 6
+            b.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            b.widthAnchor.constraint(equalToConstant: 48).isActive = true
+            b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+            catButtons.append((item.name, b))
+            catRow.addArrangedSubview(b)
+        }
+        showCats(visible)
+        relayout()
+    }
+
+    func showCats(_ visible: Set<String>) {
+        for c in catButtons {
+            let on = visible.contains(c.name)
+            c.button.layer?.borderWidth = on ? 2.5 : 0
+            c.button.alphaValue = on ? 1 : 0.4
+        }
+    }
+
+    @objc private func catToggled(_ b: NSButton) {
+        if let name = catButtons.first(where: { $0.button === b })?.name { onToggleCat?(name) }
     }
 
     func select(_ id: String) {

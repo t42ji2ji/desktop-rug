@@ -142,7 +142,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// 要畫的貓：哪一種、哪個姿勢。座標是地毯局部座標，在這裡貼到毯面上
     var cats: [(kind: Int, pose: Cat.Pose)] = []
     var catSprites: CatSprites?
-    var catLength: Float = 140
+    var catLength: Float = 180
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {

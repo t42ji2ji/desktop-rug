@@ -73,8 +73,42 @@ final class RugController: NSObject {
     private lazy var catSprites = CatSprites(device: device)
     /// 住在地毯上的貓（kind = 第幾種花色的貓）
     private var cats: [(kind: Int, cat: Cat)] = []
-    var catsEnabled = UserDefaults.standard.object(forKey: "cats") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(catsEnabled, forKey: "cats"); needsDraw = true }
+    /// 要顯示哪幾隻（貓的名字），預設只有橘貓
+    private(set) var visibleCats = Set(UserDefaults.standard.stringArray(forKey: "visibleCats") ?? ["orange"])
+    var catKinds: [String] { catSprites.kinds.map(\.name) }
+
+    /// 編輯模式的貓頭像（抬頭看你那一格；還沒有就用站姿）
+    func catThumbnail(_ name: String) -> NSImage? {
+        guard let dir = Bundle.main.resourceURL?.appendingPathComponent("cats") else { return nil }
+        for (anim, frame) in [("lookup", 12), ("walk", 0)] {
+            guard let img = NSImage(contentsOf: dir.appendingPathComponent("\(name)-\(anim).png")),
+                  let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+            let cw = cg.width / 4, ch = cg.height / 4
+            guard let cell = cg.cropping(to: CGRect(x: (frame % 4) * cw, y: (frame / 4) * ch, width: cw, height: ch)) else { continue }
+            return NSImage(cgImage: cell, size: NSSize(width: 48, height: 32))
+        }
+        return nil
+    }
+
+    func toggleCat(_ name: String) {
+        if visibleCats.contains(name) {
+            visibleCats.remove(name)
+            cats.removeAll { catSprites.kinds[$0.kind].name == name }
+        } else if let k = catSprites.kinds.firstIndex(where: { $0.name == name }), let cloth {
+            visibleCats.insert(name)
+            // 新來的貓放在地毯中間附近、沒被蓋住的地方
+            let size = cloth.restSize
+            var p = SIMD2<Float>(Float.random(in: -0.25...0.25) * size.x, Float.random(in: -0.2...0.2) * size.y)
+            for _ in 0..<10 where cloth.isCovered(uv: p / size + 0.5) {
+                p = SIMD2(Float.random(in: -0.35...0.35) * size.x, Float.random(in: -0.3...0.3) * size.y)
+            }
+            cats.append((k, Cat(pos: p, heading: Float.random(in: -.pi ... .pi), length: tuning.catLength,
+                                seed: UInt64.random(in: 1...UInt64.max))))
+        } else {
+            visibleCats.insert(name)
+        }
+        UserDefaults.standard.set(Array(visibleCats), forKey: "visibleCats")
+        needsDraw = true
     }
 
     enum Drag {
@@ -196,14 +230,15 @@ final class RugController: NSObject {
         if t >= 1.3 { stow = nil; hideRug(); s.done() }
     }
 
-    /// 每種貓一隻，散在地毯上
+    /// 要顯示的貓各一隻，散在地毯上
     private func spawnCats(rugSize: SIMD2<Float>) {
         guard cats.isEmpty else { return }
-        let n = catSprites.kinds.count
-        cats = (0..<n).map { i in
+        let kinds = catSprites.kinds.indices.filter { visibleCats.contains(catSprites.kinds[$0].name) }
+        let n = kinds.count
+        cats = kinds.enumerated().map { i, kind in
             let x = (Float(i) + 0.5) / Float(max(n, 1)) - 0.5
             let pos = SIMD2(x * rugSize.x * 0.7, (i % 2 == 0 ? 0.15 : -0.15) * rugSize.y)
-            return (i, Cat(pos: pos, heading: Float(i) * 1.7, length: tuning.catLength, seed: UInt64(i + 1) &* 7919))
+            return (kind, Cat(pos: pos, heading: Float(i) * 1.7, length: tuning.catLength, seed: UInt64(kind + 1) &* 7919))
         }
     }
 
@@ -328,7 +363,7 @@ final class RugController: NSObject {
             stickyEdit = false
         }
 
-        if catsEnabled, let cloth, stow == nil, !cats.isEmpty {
+        if let cloth, stow == nil, !cats.isEmpty {
             let positions = cats.map(\.cat.pos)
             for i in cats.indices {
                 let others = positions.enumerated().filter { $0.offset != i }.map(\.element)
@@ -358,7 +393,7 @@ final class RugController: NSObject {
             for s in surfaces {
                 let cam = s.camera
                 s.renderer.origin = cam.origin
-                s.renderer.cats = catsEnabled && stow == nil ? cats.map { ($0.kind, $0.cat.pose) } : []
+                s.renderer.cats = stow == nil ? cats.map { ($0.kind, $0.cat.pose) } : []
                 s.draw()
                 var local = p
                 local?.center -= cam.origin
@@ -469,7 +504,7 @@ final class RugController: NSObject {
 
     /// 游標底下有沒有貓（橢圓判定，大約是身體不含尾巴）
     private func catAt(_ q: SIMD2<Float>) -> Int? {
-        guard catsEnabled, stow == nil, cloth != nil else { return nil }
+        guard stow == nil, cloth != nil else { return nil }
         let local = rugLocal(q)
         for i in cats.indices.reversed() {
             let c = cats[i].cat

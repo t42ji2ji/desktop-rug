@@ -105,6 +105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             o.addButton.action = #selector(addLocalImage)
             o.trashButton.target = self
             o.trashButton.action = #selector(hideRug)
+            o.onToggleCat = { [weak self] name in
+                guard let self else { return }
+                self.rug.toggleCat(name)
+                for s in self.rug.surfaces { s.overlay.showCats(self.rug.visibleCats) }
+            }
+            o.setCats(rug.catKinds.compactMap { n in rug.catThumbnail(n).map { (n, $0) } }, visible: rug.visibleCats)
         }
         refreshSwatches()
     }
@@ -206,7 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         save()
     }
 
-    @objc func toggleCats() { rug.catsEnabled.toggle() }
 
     @objc func showTuning() {
         if tuningPanel == nil {
@@ -242,10 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
         menu.addItem(withTitle: "調整參數…", action: #selector(showTuning), keyEquivalent: "").target = self
-        let cats = NSMenuItem(title: "小貓", action: #selector(toggleCats), keyEquivalent: "")
-        cats.target = self
-        cats.state = rug.catsEnabled ? .on : .off
-        menu.addItem(cats)
+
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、縮放、換花色", action: nil, keyEquivalent: "")
         hint.isEnabled = false
