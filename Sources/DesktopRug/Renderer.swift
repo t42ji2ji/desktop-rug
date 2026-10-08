@@ -12,7 +12,15 @@ private let shaderSource = """
 using namespace metal;
 
 struct V { float3 pos; float3 nrm; float2 uv; };
-struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; float shadowAlpha; };
+struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; float shadowAlpha; float cornerRadius; };
+
+// 到圓角矩形邊緣的有號距離（點）：裡面為負
+static float roundedDist(float2 uv, constant U& u) {
+    float2 p = (uv - 0.5) * u.rugSize;
+    float r = min(u.cornerRadius, min(u.rugSize.x, u.rugSize.y) * 0.5);
+    float2 q = abs(p) - (u.rugSize * 0.5 - r);
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
 
 struct RugOut { float4 position [[position]]; float3 nrm; float2 uv; float h; };
 
@@ -48,24 +56,28 @@ fragment float4 rug_fs(RugOut in [[stage_in]], bool front [[front_facing]],
     float3 L = normalize(float3(-0.5, 0.6, 0.65));
     float shade = 0.28 + 0.72 * max(dot(n, L), 0.0) / L.z;
     // 邊緣包邊稍暗，看起來有厚度
-    float2 d = min(in.uv, 1.0 - in.uv) * u.rugSize;
-    float edge = smoothstep(0.6, 2.2, min(d.x, d.y));
+    float sd = roundedDist(in.uv, u);
+    if (sd > 0.02) discard_fragment();
+    float edge = smoothstep(0.6, 2.2, -sd);
     c *= mix(0.55, 1.0, edge);
     return float4(c * min(shade, 1.3), 1.0);
 }
 
-struct ShOut { float4 position [[position]]; };
+struct ShOut { float4 position [[position]]; float2 uv; };
 
 vertex ShOut shadow_vs(uint vid [[vertex_id]], const device V* v [[buffer(0)]], constant U& u [[buffer(1)]]) {
     float3 p = v[vid].pos;
     // 影子落在地上：離地越高偏移越多
     float2 g = p.xy + u.shadowOffset + float2(0.30, -0.42) * p.z * u.shadowLift;
     float2 c = u.view * 0.5;
-    ShOut o; o.position = float4((g - c) / c, 0, 1);
+    ShOut o; o.position = float4((g - c) / c, 0, 1); o.uv = v[vid].uv;
     return o;
 }
 
-fragment float shadow_fs(ShOut in [[stage_in]]) { return 1.0; }
+fragment float shadow_fs(ShOut in [[stage_in]], constant U& u [[buffer(1)]]) {
+    if (roundedDist(in.uv, u) > 0.02) discard_fragment();
+    return 1.0;
+}
 
 struct Full { float4 position [[position]]; float2 uv; };
 
@@ -85,7 +97,7 @@ fragment float4 composite_fs(Full in [[stage_in]], texture2d<float> mask [[textu
 struct Vertex { var pos: SIMD3<Float>; var nrm: SIMD3<Float>; var uv: SIMD2<Float> }
 struct Uniforms {
     var view: SIMD2<Float>; var cam: Float; var rugSize: SIMD2<Float>
-    var shadowOffset: SIMD2<Float>; var shadowLift: Float; var shadowAlpha: Float
+    var shadowOffset: SIMD2<Float>; var shadowLift: Float; var shadowAlpha: Float; var cornerRadius: Float
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
@@ -105,6 +117,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var mesh: RenderMesh?
     var sideThickness: Float = 6
     var shadowAlpha: Float = 0.22
+    var cornerRadius: Float = 16
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -177,6 +190,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         if mesh == nil || meshSource !== cloth { mesh = RenderMesh(cloth: cloth); meshSource = cloth }
         mesh!.thickness = sideThickness
+        mesh!.cornerRadius = cornerRadius
         mesh!.update(from: cloth)
         let m = mesh!
         var verts = [Vertex](); verts.reserveCapacity(m.indices.count + m.side.count)
@@ -188,7 +202,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let vbuf = device.makeBuffer(bytes: verts, length: MemoryLayout<Vertex>.stride * verts.count)!
         let b = view.bounds.size
         var u = Uniforms(view: SIMD2(Float(b.width), Float(b.height)), cam: cameraHeight,
-                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha)
+                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha, cornerRadius: cornerRadius)
 
         // 1. 影子遮罩（半解析度）→ 模糊
         ensureMasks(view.drawableSize)
@@ -201,6 +215,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             e.setRenderPipelineState(shadowPipe)
             e.setVertexBuffer(vbuf, offset: 0, index: 0)
             e.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
+            e.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
             e.endEncoding()
         }

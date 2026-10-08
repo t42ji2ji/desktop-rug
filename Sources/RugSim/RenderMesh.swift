@@ -13,7 +13,8 @@ public struct RenderMesh {
     /// 地毯外圈的側面（三角形清單，已展開），從上往下看時給出厚度
     public private(set) var side: [(pos: SIMD3<Float>, nrm: SIMD3<Float>, uv: SIMD2<Float>)] = []
     public var thickness: Float = 6
-    private let ring: [Int]
+    public var cornerRadius: Float = 16
+    private var restSize: SIMD2<Float>
 
     public init(cloth: Cloth, factor: Int = 4) {
         self.factor = factor
@@ -30,12 +31,7 @@ public struct RenderMesh {
             idx += [a, b, d, a, d, c]
         } }
         indices = idx
-        var rg: [Int] = []
-        for i in 0..<nx { rg.append(i) }
-        for j in 1..<ny { rg.append(j * nx + nx - 1) }
-        for i in stride(from: nx - 2, through: 0, by: -1) { rg.append((ny - 1) * nx + i) }
-        for j in stride(from: ny - 2, through: 1, by: -1) { rg.append(j * nx) }
-        ring = rg
+        restSize = cloth.restSize
         pos = Array(repeating: .zero, count: nx * ny)
         normals = Array(repeating: SIMD3(0, 0, 1), count: nx * ny)
         update(from: cloth)
@@ -50,6 +46,7 @@ public struct RenderMesh {
     }
 
     public mutating func update(from cloth: Cloth) {
+        restSize = cloth.restSize   // 編輯模式縮放會改尺寸
         let cx = cloth.nx, cy = cloth.ny, f = factor
         let P = cloth.pos
         let wts = (0..<f).map { RenderMesh.weights(Float($0) / Float(f)) }
@@ -84,17 +81,51 @@ public struct RenderMesh {
         buildSide(floor: cloth.floor)
     }
 
-    /// 沿外圈往布的背面方向長出一圈 thickness 高的側牆。外圈是逆時針，所以 切線×法線 指向外側。
+    /// 在細網格上以 uv 雙線性取樣位置和法線。
+    private func sample(_ q: SIMD2<Float>) -> (SIMD3<Float>, SIMD3<Float>) {
+        let fx = min(max(q.x, 0), 1) * Float(nx - 1), fy = min(max(q.y, 0), 1) * Float(ny - 1)
+        let i = min(Int(fx), nx - 2), j = min(Int(fy), ny - 2)
+        let tx = fx - Float(i), ty = fy - Float(j)
+        func lerp4<T: SIMD>(_ a: [T], _ k: Int) -> T where T.Scalar == Float {
+            let v00 = a[k], v10 = a[k + 1], v01 = a[k + nx], v11 = a[k + nx + 1]
+            return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty
+        }
+        let k = j * nx + i
+        return (lerp4(pos, k), simd_normalize(lerp4(normals, k)))
+    }
+
+    /// 圓角外框上的一圈 uv（逆時針，從左下角圓弧結束處開始）。
+    private func roundedRing() -> [SIMD2<Float>] {
+        let w = restSize.x, h = restSize.y
+        let r = min(cornerRadius, min(w, h) * 0.5)
+        let step = max(w / Float(nx - 1), 2)
+        var pts: [SIMD2<Float>] = []   // 以點為單位、原點在左下
+        func line(_ a: SIMD2<Float>, _ b: SIMD2<Float>) {
+            let n = max(1, Int(simd_length(b - a) / step))
+            for s in 0..<n { pts.append(a + (b - a) * (Float(s) / Float(n))) }
+        }
+        func arc(_ c: SIMD2<Float>, from a0: Float) {
+            let n = max(1, Int(r * .pi / 2 / step))
+            for s in 0..<n { let a = a0 + .pi / 2 * Float(s) / Float(n); pts.append(c + SIMD2(cos(a), sin(a)) * r) }
+        }
+        line(SIMD2(r, 0), SIMD2(w - r, 0)); arc(SIMD2(w - r, r), from: -.pi / 2)
+        line(SIMD2(w, r), SIMD2(w, h - r)); arc(SIMD2(w - r, h - r), from: 0)
+        line(SIMD2(w - r, h), SIMD2(r, h)); arc(SIMD2(r, h - r), from: .pi / 2)
+        line(SIMD2(0, h - r), SIMD2(0, r)); arc(SIMD2(r, r), from: .pi)
+        return pts.map { SIMD2($0.x / w, $0.y / h) }
+    }
+
+    /// 沿圓角外框往布的背面方向長出一圈 thickness 高的側牆。外框是逆時針，所以 切線×法線 指向外側。
     private mutating func buildSide(floor: HeightField?) {
-        let n = ring.count
+        let uvs = roundedRing()
+        let n = uvs.count
+        let samples = uvs.map { sample($0) }
         var top = [SIMD3<Float>](), bot = [SIMD3<Float>](), out = [SIMD3<Float>]()
-        top.reserveCapacity(n); bot.reserveCapacity(n); out.reserveCapacity(n)
         for a in 0..<n {
-            let k = ring[a]
-            let t = pos[ring[(a + 1) % n]] - pos[ring[(a + n - 1) % n]]
-            let nrm = normals[k]
-            top.append(pos[k])
-            var b = pos[k] - nrm * thickness
+            let (p, nrm) = samples[a]
+            let t = samples[(a + 1) % n].0 - samples[(a + n - 1) % n].0
+            top.append(p)
+            var b = p - nrm * thickness
             b.z = max(b.z, floor?.sample(b.x, b.y) ?? 0, 0)
             bot.append(b)
             out.append(simd_normalize(simd_cross(t, nrm)))
@@ -102,7 +133,7 @@ public struct RenderMesh {
         side.removeAll(keepingCapacity: true)
         for a in 0..<n {
             let b = (a + 1) % n
-            let ua = uv[ring[a]], ub = uv[ring[b]]
+            let ua = uvs[a], ub = uvs[b]
             side += [(top[a], out[a], ua), (bot[a], out[a], ua), (bot[b], out[b], ub),
                      (top[a], out[a], ua), (bot[b], out[b], ub), (top[b], out[b], ub)]
         }

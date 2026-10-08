@@ -7,6 +7,7 @@ struct Tuning {
     var columns: Float = 32
     var sideThickness: Float = 6
     var shadowAlpha: Float = 0.22
+    var cornerRadius: Float = 16
 
     struct Knob {
         let key: String
@@ -28,6 +29,7 @@ struct Tuning {
         Knob(key: "columns", title: "格子數（橫向）", range: 16...56, path: \.columns),
         Knob(key: "sideThickness", title: "邊緣厚度", range: 0...20, path: \.sideThickness),
         Knob(key: "shadowAlpha", title: "陰影濃度", range: 0...0.6, path: \.shadowAlpha),
+        Knob(key: "cornerRadius", title: "圓角", range: 0...80, path: \.cornerRadius),
     ]
 
     static func load() -> Tuning {
