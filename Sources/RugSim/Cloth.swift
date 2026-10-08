@@ -29,6 +29,7 @@ public struct ClothParams {
     public var drag: Float = 0.985          // 每個 substep 的速度保留
     public var floorFriction: Float = 0.18
     public var iterations = 3
+    public var timeScale: Float = 1.2      // 整體動作快一點
     public var staticFriction: Float = 0.4 // 每個 substep 小於這個位移就黏住  // 貼地時每個 substep 吃掉的水平速度比例
     public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
@@ -169,7 +170,7 @@ public final class Cloth {
 
     public func step(dt: Float) {
         let n = params.substeps
-        let h = dt / Float(n)
+        let h = dt * params.timeScale / Float(n)
         if let g = grabbed {
             grabLiftNow += (params.grabLift - grabLiftNow) * min(1, dt * 10)
             grabTarget.z = floorHeight(SIMD2(grabTarget.x, grabTarget.y)) + grabLiftNow
