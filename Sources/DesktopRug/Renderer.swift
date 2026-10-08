@@ -12,7 +12,7 @@ private let shaderSource = """
 using namespace metal;
 
 struct V { float3 pos; float3 nrm; float2 uv; };
-struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; float shadowAlpha; float cornerRadius; };
+struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; float shadowAlpha; float cornerRadius; float2 origin; };
 
 // 到圓角矩形邊緣的有號距離（點）：裡面為負
 static float roundedDist(float2 uv, constant U& u) {
@@ -25,9 +25,10 @@ static float roundedDist(float2 uv, constant U& u) {
 struct RugOut { float4 position [[position]]; float3 nrm; float2 uv; float h; };
 
 static float4 project(float3 p, constant U& u) {
+    // 鏡頭在這個螢幕中央正上方；p 是跨螢幕的統一座標，origin 是這個螢幕的左下角
     float s = u.cam / (u.cam - p.z);
-    float2 c = u.view * 0.5;
-    float2 q = (p.xy - c) * s / c;
+    float2 h = u.view * 0.5;
+    float2 q = (p.xy - (u.origin + h)) * s / h;
     return float4(q, 0.5 - p.z / 4000.0, 1.0);
 }
 
@@ -69,8 +70,8 @@ vertex ShOut shadow_vs(uint vid [[vertex_id]], const device V* v [[buffer(0)]], 
     float3 p = v[vid].pos;
     // 影子落在地上：離地越高偏移越多
     float2 g = p.xy + u.shadowOffset + float2(0.30, -0.42) * p.z * u.shadowLift;
-    float2 c = u.view * 0.5;
-    ShOut o; o.position = float4((g - c) / c, 0, 1); o.uv = v[vid].uv;
+    float2 h = u.view * 0.5;
+    ShOut o; o.position = float4((g - (u.origin + h)) / h, 0, 1); o.uv = v[vid].uv;
     return o;
 }
 
@@ -98,6 +99,7 @@ struct Vertex { var pos: SIMD3<Float>; var nrm: SIMD3<Float>; var uv: SIMD2<Floa
 struct Uniforms {
     var view: SIMD2<Float>; var cam: Float; var rugSize: SIMD2<Float>
     var shadowOffset: SIMD2<Float>; var shadowLift: Float; var shadowAlpha: Float; var cornerRadius: Float
+    var origin: SIMD2<Float>
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
@@ -118,6 +120,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     var sideThickness: Float = 6
     var shadowAlpha: Float = 0.22
     var cornerRadius: Float = 16
+    /// 這個螢幕左下角在統一座標裡的位置
+    var origin = SIMD2<Float>(0, 0)
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -202,7 +206,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         let vbuf = device.makeBuffer(bytes: verts, length: MemoryLayout<Vertex>.stride * verts.count)!
         let b = view.bounds.size
         var u = Uniforms(view: SIMD2(Float(b.width), Float(b.height)), cam: cameraHeight,
-                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha, cornerRadius: cornerRadius)
+                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha, cornerRadius: cornerRadius,
+                         origin: origin)
 
         // 1. 影子遮罩（半解析度）→ 模糊
         ensureMasks(view.drawableSize)
@@ -243,13 +248,21 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 }
 
-/// 畫面上看到的點 ↔ 模擬座標（跟 shader 的 project 一致）
-func projectToScreen(_ p: SIMD3<Float>, view: SIMD2<Float>) -> SIMD2<Float> {
-    let c = view * 0.5
-    return c + (SIMD2(p.x, p.y) - c) * (cameraHeight / (cameraHeight - p.z))
-}
+/// 某個螢幕的鏡頭：模擬的統一座標 ↔ 這個螢幕上看到的位置（也是統一座標），跟 shader 的 project 一致
+struct ScreenCamera {
+    var origin: SIMD2<Float>
+    var size: SIMD2<Float>
+    var center: SIMD2<Float> { origin + size * 0.5 }
 
-func unprojectFromScreen(_ q: SIMD2<Float>, z: Float, view: SIMD2<Float>) -> SIMD2<Float> {
-    let c = view * 0.5
-    return c + (q - c) * ((cameraHeight - z) / cameraHeight)
+    func project(_ p: SIMD3<Float>) -> SIMD2<Float> {
+        center + (SIMD2(p.x, p.y) - center) * (cameraHeight / (cameraHeight - p.z))
+    }
+
+    func unproject(_ q: SIMD2<Float>, z: Float) -> SIMD2<Float> {
+        center + (q - center) * ((cameraHeight - z) / cameraHeight)
+    }
+
+    func contains(_ q: SIMD2<Float>) -> Bool {
+        q.x >= origin.x && q.y >= origin.y && q.x < origin.x + size.x && q.y < origin.y + size.y
+    }
 }

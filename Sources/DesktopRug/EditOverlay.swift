@@ -127,10 +127,10 @@ final class EditOverlay: NSView {
 
     func toolbarHit(_ p: CGPoint) -> Bool { !toolbar.isHidden && toolbar.frame.contains(p) }
 
-    func update(placement: RugPlacement?, activeCorner: Int?) {
+    func update(placement: RugPlacement?, activeCorner: Int?, showToolbar: Bool) {
         self.placement = placement
         self.activeCorner = activeCorner
-        if let p = placement {
+        if let p = placement, showToolbar {
             let lowest = p.corners.map(\.y).min()!
             toolbar.setFrameOrigin(NSPoint(x: CGFloat(p.center.x) - toolbar.frame.width / 2,
                                            y: CGFloat(lowest) - 26 - toolbar.frame.height))

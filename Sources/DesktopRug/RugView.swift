@@ -3,30 +3,12 @@ import MetalKit
 import RugSim
 import simd
 
-/// 整張主螢幕大小的透明 Metal view。平常整個視窗不吃滑鼠，只有游標在地毯上（或按著 ⌥ 在控制點附近）才吃。
-final class RugView: MTKView {
+/// 一個螢幕上的透明 Metal view：只負責畫自己那一塊、把滑鼠事件換成統一座標交給 controller。
+/// 平常整個視窗不吃滑鼠，只有游標在地毯上（或編輯模式在控制點附近）才吃。
+final class RugSurface: MTKView {
     let renderer: Renderer
     let overlay = EditOverlay()
-    private(set) var cloth: Cloth?
-    private var floorField: HeightField?
-    private var projected: [SIMD2<Float>] = []
-    private var needsDraw = true
-    private(set) var editMode = false
-    private var timer: Timer?
-    private var saveWhenSettled = false
-    /// 右鍵進入、不用按著 ⌥ 的編輯模式；點地毯外面或再按右鍵離開
-    private(set) var stickyEdit = false
-    /// 花色選單開著時（選單是 modal），點選單不算「點外面」
-    var holdEdit = false
-    var onChange: (() -> Void)?   // 擺法變了，要存檔
-    var tuning = Tuning.load()
-
-    enum Drag {
-        case grab
-        case move(start: SIMD2<Float>, from: RugPlacement)
-        case resize(corner: Int, from: RugPlacement)
-    }
-    private var drag: Drag?
+    weak var controller: RugController?
 
     init(frame: CGRect, device: MTLDevice) {
         let tmp = MTKView(frame: .zero, device: device)
@@ -50,7 +32,100 @@ final class RugView: MTKView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    var viewSize: SIMD2<Float> { SIMD2(Float(bounds.width), Float(bounds.height)) }
+    /// 這個螢幕在統一座標裡的範圍
+    var camera: ScreenCamera {
+        let f = window?.frame ?? .zero
+        return ScreenCamera(origin: SIMD2(Float(f.minX), Float(f.minY)), size: SIMD2(Float(f.width), Float(f.height)))
+    }
+
+    /// 拖曳跨到別的螢幕時事件仍送到按下的那個視窗，座標會超出範圍，換成統一座標就沒問題
+    private func global(_ e: NSEvent) -> SIMD2<Float> {
+        let o = window?.frame.origin ?? .zero
+        return SIMD2(Float(e.locationInWindow.x + o.x), Float(e.locationInWindow.y + o.y))
+    }
+
+    override func mouseDown(with e: NSEvent) { controller?.mouseDown(at: global(e)) }
+    override func mouseDragged(with e: NSEvent) { controller?.mouseDragged(to: global(e)) }
+    override func mouseUp(with e: NSEvent) { controller?.mouseUp() }
+    override func rightMouseDown(with e: NSEvent) { controller?.rightMouseDown(at: global(e)) }
+}
+
+/// 地毯本體：一張布、所有互動狀態、每個 frame 的模擬。座標一律是跨螢幕的統一座標
+/// （AppKit 螢幕座標：主螢幕左下為原點、y 向上）。每個螢幕一個 RugSurface 負責畫。
+final class RugController: NSObject {
+    let device = MTLCreateSystemDefaultDevice()!
+    private(set) var surfaces: [RugSurface] = []
+    private var windows: [NSPanel] = []
+    private(set) var cloth: Cloth?
+    private var floorField: HeightField?
+    private var needsDraw = true
+    private(set) var editMode = false
+    private var timer: Timer?
+    private var saveWhenSettled = false
+    /// 右鍵進入、不用按著 ⌥ 的編輯模式；點地毯外面或再按右鍵離開
+    private(set) var stickyEdit = false
+    /// 檔案選擇視窗開著時（modal），點那個視窗不算「點外面」
+    var holdEdit = false
+    var onChange: (() -> Void)?   // 擺法變了，要存檔
+    var onSurfacesChanged: (() -> Void)?   // 螢幕重建了，工具列按鈕要重新接線
+    var tuning = Tuning.load()
+    private var textureURL: URL?
+
+    enum Drag {
+        case grab
+        case move(start: SIMD2<Float>, from: RugPlacement)
+        case resize(corner: Int, from: RugPlacement)
+    }
+    private var drag: Drag?
+
+    // MARK: 螢幕
+
+    /// 每個螢幕開一個桌面層的透明視窗。螢幕插拔時重建。
+    func setupScreens() {
+        for w in windows { w.orderOut(nil) }
+        windows = []; surfaces = []
+        for screen in NSScreen.screens {
+            let w = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+            // 桌面圖示上面一層、一般視窗下面
+            w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
+            w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
+            w.isOpaque = false
+            w.backgroundColor = .clear
+            w.hasShadow = false
+            w.ignoresMouseEvents = true
+            w.hidesOnDeactivate = false
+            w.isReleasedWhenClosed = false
+            let s = RugSurface(frame: NSRect(origin: .zero, size: screen.frame.size), device: device)
+            s.autoresizingMask = [.width, .height]
+            s.controller = self
+            w.contentView = s
+            w.setFrame(screen.frame, display: false)
+            w.orderFrontRegardless()
+            windows.append(w); surfaces.append(s)
+        }
+        applyLook()
+        if let textureURL { for s in surfaces { s.renderer.loadTexture(url: textureURL) } }
+        for s in surfaces { s.renderer.cloth = cloth }
+        onSurfacesChanged?()
+        needsDraw = true
+    }
+
+    /// 主螢幕（有選單列、統一座標的原點）
+    var mainCamera: ScreenCamera {
+        let f = NSScreen.screens[0].frame
+        return ScreenCamera(origin: SIMD2(Float(f.minX), Float(f.minY)), size: SIMD2(Float(f.width), Float(f.height)))
+    }
+
+    /// 所有螢幕合起來的範圍
+    var desktopBounds: (origin: SIMD2<Float>, size: SIMD2<Float>) {
+        let u = NSScreen.screens.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        return (SIMD2(Float(u.minX), Float(u.minY)), SIMD2(Float(u.width), Float(u.height)))
+    }
+
+    private func surface(containing q: SIMD2<Float>) -> RugSurface? {
+        surfaces.first { $0.camera.contains(q) } ?? surfaces.first
+    }
 
     // MARK: 地毯
 
@@ -58,13 +133,18 @@ final class RugView: MTKView {
         let c = Cloth(placement: placement, columns: Int(tuning.columns))
         c.setParams(tuning.params)
         c.floor = floorField
-        renderer.sideThickness = tuning.sideThickness
-        renderer.shadowAlpha = tuning.shadowAlpha
-        renderer.cornerRadius = tuning.cornerRadius
         cloth = c
-        renderer.cloth = c
-        updateProjection()
+        for s in surfaces { s.renderer.cloth = c }
+        applyLook()
         needsDraw = true
+    }
+
+    private func applyLook() {
+        for s in surfaces {
+            s.renderer.sideThickness = tuning.sideThickness
+            s.renderer.shadowAlpha = tuning.shadowAlpha
+            s.renderer.cornerRadius = tuning.cornerRadius
+        }
     }
 
     /// 收起動畫：右半翻到左半上、上半往下對折、縮小消失，播完才真的收起。
@@ -101,7 +181,6 @@ final class RugView: MTKView {
             let w = p.center + p.axisX * q.x + p.axisY * q.y
             return SIMD3(w.x, w.y, z * shrink)
         }
-        updateProjection()
         needsDraw = true
         if t >= 1.3 { stow = nil; hideRug(); s.done() }
     }
@@ -109,7 +188,7 @@ final class RugView: MTKView {
     func hideRug() {
         stickyEdit = false
         cloth = nil
-        renderer.cloth = nil
+        for s in surfaces { s.renderer.cloth = nil }
         drag = nil
         needsDraw = true
     }
@@ -117,9 +196,7 @@ final class RugView: MTKView {
     /// 面板改了參數。rebuild = 格子數變了，要整張重建。
     func apply(_ t: Tuning, rebuild: Bool) {
         tuning = t
-        renderer.sideThickness = t.sideThickness
-        renderer.shadowAlpha = t.shadowAlpha
-        renderer.cornerRadius = t.cornerRadius
+        applyLook()
         if rebuild, let cloth {
             var p = cloth.fittedPlacement()
             p.angle = 0
@@ -131,7 +208,8 @@ final class RugView: MTKView {
     }
 
     func setTexture(_ url: URL) {
-        renderer.loadTexture(url: url)
+        textureURL = url
+        for s in surfaces { s.renderer.loadTexture(url: url) }
         needsDraw = true
     }
 
@@ -151,7 +229,7 @@ final class RugView: MTKView {
         timer = t
     }
 
-    // 開發用：`DesktopRug --demo fold|bumps|edit` 跑腳本動作，方便不碰滑鼠截圖驗畫面
+    // 開發用：`DesktopRug --demo fold|flick|bumps|edit|stow|tuning` 跑腳本動作，方便不碰滑鼠截圖驗畫面
     var demo: String?
     private var demoFrame = 0
     private var demoFrom = SIMD2<Float>(0, 0)
@@ -167,7 +245,7 @@ final class RugView: MTKView {
             let from = demoFrom, to = demoTo
             if demoFrame > 30 && demoFrame <= 120 {
                 let t = Float(demoFrame - 30) / 90
-                cloth.moveGrab(to: from + (to - from) * t + SIMD2(0, 0))
+                cloth.moveGrab(to: from + (to - from) * t)
             }
             if demoFrame == 150 { cloth.release() }
         case "flick":
@@ -181,8 +259,15 @@ final class RugView: MTKView {
                 for k in 0..<4 { icons.append(p.point(u: 0.3, v: 0.6) + SIMD2(Float(k) * 4, 0)) }
                 icons.append(p.point(u: 0.7, v: 0.4))
                 icons += [p.point(u: 0.55, v: 0.7), p.point(u: 0.62, v: 0.7)]
-                setFloor(HeightField.fromIcons(icons, iconSize: 64, origin: .zero, size: viewSize))
+                let d = desktopBounds
+                setFloor(HeightField.fromIcons(icons, iconSize: 64, origin: d.origin, size: d.size))
             }
+        case "cross":
+            // 放在主螢幕下緣（跨到下方螢幕），再抓中間往下拖
+            if demoFrame == 1 { cloth.flatten(to: RugPlacement(center: SIMD2(950, 60), angle: 0, size: p.size)) }
+            if demoFrame == 30 { demoFrom = SIMD2(950, 60); cloth.grab(near: demoFrom) }
+            if demoFrame > 30 && demoFrame <= 90 { cloth.moveGrab(to: demoFrom + SIMD2(0, -Float(demoFrame - 30) * 5)) }
+            if demoFrame == 90 { cloth.release() }
         case "stow":
             if demoFrame == 30 { stowRug {} }
         case "edit":
@@ -194,9 +279,8 @@ final class RugView: MTKView {
     }
 
     private func tick() {
-        guard let window else { return }
         runDemo()
-        let m = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let m = NSEvent.mouseLocation
         let mouse = SIMD2(Float(m.x), Float(m.y))
         let option = NSEvent.modifierFlags.contains(.option)
         if drag == nil, demo != "edit", (option || stickyEdit) != editMode {
@@ -204,12 +288,21 @@ final class RugView: MTKView {
             needsDraw = true
         }
 
-        let hit: Bool
-        if drag != nil { hit = true }
-        else if editMode { hit = editTarget(at: mouse) != nil || overlay.toolbarHit(m) }
-        else { hit = clothHit(mouse) }
-        if window.ignoresMouseEvents == hit { window.ignoresMouseEvents = !hit }
-        if stickyEdit, !hit, !holdEdit, NSEvent.pressedMouseButtons != 0 {
+        // 只有游標所在的那個螢幕可能要吃滑鼠
+        var anyHit = false
+        for (s, w) in zip(surfaces, windows) {
+            let cam = s.camera
+            let hit: Bool
+            if drag != nil { hit = true }
+            else if !cam.contains(mouse) { hit = false }
+            else if editMode {
+                let local = CGPoint(x: CGFloat(mouse.x - cam.origin.x), y: CGFloat(mouse.y - cam.origin.y))
+                hit = editTarget(at: mouse) != nil || s.overlay.toolbarHit(local)
+            } else { hit = clothHit(mouse, camera: cam) }
+            if w.ignoresMouseEvents == hit { w.ignoresMouseEvents = !hit }
+            anyHit = anyHit || hit
+        }
+        if stickyEdit, !anyHit, !holdEdit, NSEvent.pressedMouseButtons != 0 {
             stickyEdit = false
         }
 
@@ -217,7 +310,6 @@ final class RugView: MTKView {
             stepStow()
         } else if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
             cloth.step(dt: 1.0 / 60)
-            updateProjection()
             needsDraw = true
         }
         // 拖完放手時布還在半空，等它躺平再存，存到的擺法才對
@@ -227,21 +319,24 @@ final class RugView: MTKView {
         }
         if needsDraw {
             needsDraw = false
-            draw()
-            overlay.update(placement: editMode && stow == nil ? cloth?.fittedPlacement() : nil,
-                           activeCorner: activeCorner)
+            let p = editMode && stow == nil ? cloth?.fittedPlacement() : nil
+            // 花色列只放在地毯中心所在的那個螢幕
+            let home = p.flatMap { surface(containing: $0.center) }
+            for s in surfaces {
+                let cam = s.camera
+                s.renderer.origin = cam.origin
+                s.draw()
+                var local = p
+                local?.center -= cam.origin
+                s.overlay.update(placement: local, activeCorner: activeCorner, showToolbar: s === home)
+            }
         }
     }
 
-    private func updateProjection() {
-        guard let cloth else { projected = []; return }
-        let v = viewSize
-        projected = cloth.pos.map { projectToScreen($0, view: v) }
-    }
-
-    /// 游標是不是在（投影後的）任何一片三角形裡。折起來的布外框會自交，所以不能用外框多邊形判斷。
-    private func clothHit(_ q: SIMD2<Float>) -> Bool {
-        guard let cloth, !projected.isEmpty else { return false }
+    /// 游標是不是在這個螢幕看到的任何一片三角形裡。折起來的布外框會自交，所以不能用外框多邊形判斷。
+    private func clothHit(_ q: SIMD2<Float>, camera: ScreenCamera) -> Bool {
+        guard let cloth else { return false }
+        let projected = cloth.pos.map { camera.project($0) }
         var lo = SIMD2<Float>(.infinity, .infinity), hi = -lo
         for p in projected { lo = simd_min(lo, p); hi = simd_max(hi, p) }
         if q.x < lo.x || q.y < lo.y || q.x > hi.x || q.y > hi.y { return false }
@@ -252,26 +347,23 @@ final class RugView: MTKView {
         return false
     }
 
-    // MARK: 編輯模式（按著 ⌥）
+    // MARK: 編輯模式（右鍵或按著 ⌥）
 
     private enum EditTarget { case corner(Int), body }
     private var activeCorner: Int?
 
     private func editTarget(at q: SIMD2<Float>) -> EditTarget? {
         guard let p = cloth?.fittedPlacement() else { return nil }
-        let corners = p.corners
-        for (k, c) in corners.enumerated() where simd_distance(c, q) < 9 { return .corner(k) }
+        for (k, c) in p.corners.enumerated() where simd_distance(c, q) < 9 { return .corner(k) }
         let local = SIMD2(simd_dot(q - p.center, p.axisX), simd_dot(q - p.center, p.axisY))
         if abs(local.x) <= p.size.x / 2 && abs(local.y) <= p.size.y / 2 { return .body }
         return nil
     }
 
-    // MARK: 滑鼠
+    // MARK: 滑鼠（統一座標）
 
-    override func mouseDown(with e: NSEvent) {
+    func mouseDown(at q: SIMD2<Float>) {
         guard let cloth, stow == nil else { return }
-        let m = convert(e.locationInWindow, from: nil)
-        let q = SIMD2(Float(m.x), Float(m.y))
         if editMode {
             guard let target = editTarget(at: q) else { return }
             var p = cloth.fittedPlacement()
@@ -282,40 +374,39 @@ final class RugView: MTKView {
             case .body: drag = .move(start: q, from: p); NSCursor.closedHand.push()
             }
         } else {
-            cloth.grab(near: unprojectFromScreen(q, z: 0, view: viewSize))
-            cloth.moveGrab(to: unprojectFromScreen(q, z: cloth.params.grabLift, view: viewSize))
+            guard let cam = surface(containing: q)?.camera else { return }
+            cloth.grab(near: cam.unproject(q, z: 0))
+            cloth.moveGrab(to: cam.unproject(q, z: cloth.params.grabLift))
             drag = .grab
             NSCursor.closedHand.push()
         }
         needsDraw = true
     }
 
-    override func rightMouseDown(with e: NSEvent) {
-        let m = convert(e.locationInWindow, from: nil)
-        let q = SIMD2(Float(m.x), Float(m.y))
+    func rightMouseDown(at q: SIMD2<Float>) {
         guard stow == nil else { return }
-        if stickyEdit { stickyEdit = false } else if clothHit(q) { stickyEdit = true }
+        if stickyEdit { stickyEdit = false }
+        else if let cam = surface(containing: q)?.camera, clothHit(q, camera: cam) { stickyEdit = true }
         needsDraw = true
     }
 
-    override func mouseDragged(with e: NSEvent) {
+    func mouseDragged(to q: SIMD2<Float>) {
         guard let cloth, let drag else { return }
-        let m = convert(e.locationInWindow, from: nil)
-        let q = SIMD2(Float(m.x), Float(m.y))
         switch drag {
         case .grab:
-            cloth.moveGrab(to: unprojectFromScreen(q, z: cloth.params.grabLift, view: viewSize))
+            // 拖到哪個螢幕就用那個螢幕的鏡頭換算
+            guard let cam = surface(containing: q)?.camera else { return }
+            cloth.moveGrab(to: cam.unproject(q, z: cloth.params.grabLift))
         case .move(let start, var p):
             p.center += q - start
             cloth.flatten(to: p)
         case .resize(let k, let p):
             cloth.flatten(to: resized(p, corner: k, to: q))
         }
-        updateProjection()
         needsDraw = true
     }
 
-    override func mouseUp(with e: NSEvent) {
+    func mouseUp() {
         guard let d = drag else { return }
         NSCursor.pop()
         drag = nil
@@ -331,7 +422,7 @@ final class RugView: MTKView {
         let sy: Float = (k >= 2) ? 1 : -1
         let d = q - opposite
         let lx = simd_dot(d, p.axisX) * sx, ly = simd_dot(d, p.axisY) * sy
-        let maxW = viewSize.x * 1.2
+        let maxW = desktopBounds.size.x
         let s = min(max(max(lx / p.size.x, ly / p.size.y), 160 / p.size.x), maxW / p.size.x)
         var out = p
         out.size = p.size * s

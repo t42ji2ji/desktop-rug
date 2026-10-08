@@ -57,8 +57,7 @@ struct Pattern {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    var window: NSPanel!
-    var view: RugView!
+    let rug = RugController()
     var statusItem: NSStatusItem!
     var patterns = Pattern.all()
     let defaults = UserDefaults.standard
@@ -72,61 +71,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        // 主顯示器（有選單列、Finder 桌面座標的原點）
-        let screen = NSScreen.screens[0]
-        window = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
-                         backing: .buffered, defer: false)
-        // 桌面圖示上面一層、一般視窗下面
-        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = false
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
-
-        view = RugView(frame: NSRect(origin: .zero, size: screen.frame.size), device: MTLCreateSystemDefaultDevice()!)
-        view.autoresizingMask = [.width, .height]
-        window.contentView = view
-        window.setFrame(screen.frame, display: false)
-        window.orderFrontRegardless()
-
-        view.onChange = { [weak self] in self?.save() }
-        view.overlay.onPick = { [weak self] id in self?.patternID = id; self?.applyPattern() }
-        view.overlay.onDelete = { [weak self] id in self?.deletePattern(id) }
-        view.overlay.addButton.target = self
-        view.overlay.addButton.action = #selector(addLocalImage)
-        refreshSwatches()
-        view.overlay.trashButton.target = self
-        view.overlay.trashButton.action = #selector(hideRug)
+        rug.onChange = { [weak self] in self?.save() }
+        rug.onSurfacesChanged = { [weak self] in self?.wireOverlays() }
+        rug.setupScreens()
 
         applyPattern()
-        if !defaults.bool(forKey: "hidden") { view.show(savedPlacement() ?? defaultPlacement()) }
+        if !defaults.bool(forKey: "hidden") { rug.show(savedPlacement() ?? defaultPlacement()) }
         if let i = CommandLine.arguments.firstIndex(of: "--demo"), i + 1 < CommandLine.arguments.count {
-            view.demo = CommandLine.arguments[i + 1]
+            rug.demo = CommandLine.arguments[i + 1]
         }
-        view.start()
-        if view.demo == "tuning" { showTuning() }
+        rug.start()
+        if rug.demo == "tuning" { showTuning() }
 
         setupStatusItem()
         pollIcons()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.pollIcons() }
 
+        // 螢幕插拔、排列改變：每個螢幕的視窗重建
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            guard let self, let s = NSScreen.screens.first else { return }
-            self.window.setFrame(s.frame, display: true)
-            self.lastIcons = nil
+            self?.rug.setupScreens()
+            self?.lastIcons = nil
         }
     }
+
+    /// 每個螢幕的花色列都接到同一組動作
+    func wireOverlays() {
+        for s in rug.surfaces {
+            let o = s.overlay
+            o.onPick = { [weak self] id in self?.patternID = id; self?.applyPattern(); self?.selectSwatch(id) }
+            o.onDelete = { [weak self] id in self?.deletePattern(id) }
+            o.addButton.target = self
+            o.addButton.action = #selector(addLocalImage)
+            o.trashButton.target = self
+            o.trashButton.action = #selector(hideRug)
+        }
+        refreshSwatches()
+    }
+
+    func selectSwatch(_ id: String) { for s in rug.surfaces { s.overlay.select(id) } }
 
     // MARK: 擺法存檔
 
     func defaultPlacement() -> RugPlacement {
-        let s = view.viewSize
-        let w = s.x * 0.42
-        return RugPlacement(center: s * 0.5, angle: 0, size: SIMD2(w, w / 1.5))
+        let m = rug.mainCamera
+        let w = m.size.x * 0.42
+        return RugPlacement(center: m.center, angle: 0, size: SIMD2(w, w / 1.5))
     }
 
     func savedPlacement() -> RugPlacement? {
@@ -135,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func save() {
-        guard let p = view.placement, let d = try? JSONEncoder().encode(p) else { return }
+        guard let p = rug.placement, let d = try? JSONEncoder().encode(p) else { return }
         defaults.set(d, forKey: "placement")
     }
 
@@ -143,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applyPattern() {
         guard let p = patterns.first(where: { $0.id == patternID }) ?? patterns.first else { return }
-        view.setTexture(p.url)
+        rug.setTexture(p.url)
     }
 
     func patternMenu() -> NSMenu {
@@ -163,7 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func refreshSwatches() {
-        view.overlay.setPatterns(patterns.map { ($0.id, $0.url, $0.isUserAdded) }, selected: patternID)
+        for s in rug.surfaces {
+            s.overlay.setPatterns(patterns.map { ($0.id, $0.url, $0.isUserAdded) }, selected: patternID)
+        }
     }
 
     func deletePattern(_ id: String) {
@@ -179,10 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         panel.message = "選一張圖片當地毯花色"
-        view.holdEdit = true
+        rug.holdEdit = true
         NSApp.activate(ignoringOtherApps: true)
         let ok = panel.runModal() == .OK
-        view.holdEdit = false
+        rug.holdEdit = false
         guard ok, let url = panel.url, let p = Pattern.importImage(url) else { return }
         patterns = Pattern.all()
         patternID = p.id
@@ -194,30 +186,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let id = item.representedObject as? String else { return }
         patternID = id
         applyPattern()
-        view.overlay.select(id)
+        selectSwatch(id)
     }
 
     @objc func hideRug() {
         save()
         defaults.set(true, forKey: "hidden")
-        view.stowRug {}
+        rug.stowRug {}
     }
 
     @objc func showRug() {
         defaults.set(false, forKey: "hidden")
-        view.show(savedPlacement() ?? defaultPlacement())
+        rug.show(savedPlacement() ?? defaultPlacement())
     }
 
     @objc func resetRug() {
         defaults.set(false, forKey: "hidden")
-        view.show(defaultPlacement())
+        rug.show(defaultPlacement())
         save()
     }
 
     @objc func showTuning() {
         if tuningPanel == nil {
-            let p = TuningPanel(tuning: view.tuning)
-            p.onChange = { [weak self] t, rebuild in self?.view.apply(t, rebuild: rebuild) }
+            let p = TuningPanel(tuning: rug.tuning)
+            p.onChange = { [weak self] t, rebuild in self?.rug.apply(t, rebuild: rebuild) }
             p.center()
             tuningPanel = p
         }
@@ -241,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pat.submenu = patternMenu()
         menu.addItem(pat)
         menu.addItem(.separator())
-        if view.cloth == nil {
+        if rug.cloth == nil {
             menu.addItem(withTitle: "鋪上地毯", action: #selector(showRug), keyEquivalent: "").target = self
         } else {
             menu.addItem(withTitle: "收起地毯", action: #selector(hideRug), keyEquivalent: "").target = self
@@ -259,23 +251,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func pollIcons() {
         // Finder 關掉桌面圖示時不用問（也不會跳自動化權限）
-        guard view.demo == nil else { return }
+        guard rug.demo == nil else { return }
         let finder = UserDefaults(suiteName: "com.apple.finder")
         if finder?.object(forKey: "CreateDesktop") != nil && finder?.bool(forKey: "CreateDesktop") == false {
-            if lastIcons != nil { lastIcons = nil; view.setFloor(nil) }
+            if lastIcons != nil { lastIcons = nil; rug.setFloor(nil) }
             return
         }
-        let size = view.viewSize
+        let desk = rug.desktopBounds, mainHeight = rug.mainCamera.size.y
         iconQueue.async { [weak self] in
             guard let snap = DesktopIcons.read() else { return }
             DispatchQueue.main.async {
                 guard let self, snap != self.lastIcons else { return }
                 self.lastIcons = snap
-                // Finder 座標：主螢幕左上原點、y 向下
-                let centers = snap.centers.map { SIMD2(Float($0.x), size.y - Float($0.y)) }
-                    .filter { $0.x >= 0 && $0.y >= 0 && $0.x <= size.x && $0.y <= size.y }
-                self.view.setFloor(centers.isEmpty ? nil :
-                    HeightField.fromIcons(centers, iconSize: Float(snap.iconSize), origin: .zero, size: size))
+                // Finder 座標：主螢幕左上原點、y 向下（其他螢幕的圖示也在同一個座標系裡）
+                let lo = desk.origin, hi = desk.origin + desk.size
+                let centers = snap.centers.map { SIMD2(Float($0.x), mainHeight - Float($0.y)) }
+                    .filter { $0.x >= lo.x && $0.y >= lo.y && $0.x <= hi.x && $0.y <= hi.y }
+                self.rug.setFloor(centers.isEmpty ? nil :
+                    HeightField.fromIcons(centers, iconSize: Float(snap.iconSize), origin: desk.origin, size: desk.size))
             }
         }
     }
