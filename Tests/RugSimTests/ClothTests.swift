@@ -6,7 +6,7 @@ final class ClothTests: XCTestCase {
     let place = RugPlacement(center: SIMD2(800, 500), angle: 0, size: SIMD2(600, 400))
 
     func run(_ c: Cloth, seconds: Float) {
-        for _ in 0..<Int(seconds * 60) { c.step(dt: 1 / 60) }
+        for _ in 0..<Int(seconds * 60) where !c.isSettled { c.step(dt: 1 / 60) }
     }
 
     func testFlatRugStaysPut() {
@@ -55,7 +55,7 @@ final class ClothTests: XCTestCase {
             c.step(dt: 1 / 60)
         }
         c.release()
-        run(c, seconds: 2)
+        for _ in 0..<240 where !c.isSettled { c.step(dt: 1 / 60) }
         let tip = c.pos[c.index(c.nx - 1, c.ny - 1)]
         XCTAssertGreaterThan(tip.z, c.params.thickness * 0.8, "折過來的角要躺在下層上面")
         XCTAssertLessThan(tip.z, 20)

@@ -30,14 +30,17 @@ public struct ClothParams {
     public var floorFriction: Float = 0.18
     public var iterations = 3
     public var timeScale: Float = 1.2      // 整體動作快一點
+    public var collisionScale: Float = 0.45// 互推球半徑 = 格距 × 這個
+    public var lowerShare: Float = 1       // 兩層互推時下層退多少（上層退 1）
+    public var layerFriction: Float = 0.5  // 兩層接觸時水平相對速度吃掉的比例（1 = 黏住一起動）
     public var staticFriction: Float = 0.4 // 每個 substep 小於這個位移就黏住  // 貼地時每個 substep 吃掉的水平速度比例
     public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
     public var shear: Float = 0.7
-    public var bend: Float = 0.5
+    public var bend: Float = 0.05
     public var grabLift: Float = 45
     public var grabFollow: Float = 0.2     // 抓點每個 substep 追上目標的比例，小 = 拖起來比較重
-    public var maxStep: Float = 20         // 每個 substep 最多移動幾點，避免甩飛
+    public var maxStep: Float = 12         // 每個 substep 最多移動幾點，避免甩飛
     public init() {}
 }
 
@@ -69,7 +72,7 @@ public final class Cloth {
     /// 連續幾個 frame 只剩微小晃動。夠久就當作靜摩擦把它定住（休眠）。
     private var calmFrames = 0
 
-    public init(placement: RugPlacement, columns: Int = 48) {
+    public init(placement: RugPlacement, columns: Int = 32) {
         let aspect = placement.size.y / placement.size.x
         nx = columns
         ny = max(4, Int((Float(columns - 1) * aspect).rounded()) + 1)
@@ -145,7 +148,7 @@ public final class Cloth {
         for j in max(0, bj - 2)...min(ny - 1, bj + 2) { for i in max(0, bi - 2)...min(nx - 1, bi + 2) {
             let k = index(i, j)
             let o = SIMD2(pos[k].x, pos[k].y) - c
-            if simd_length(o) <= spacing * 2.3 { grabPatch.append((k, o)); pinned[k] = true }
+            if simd_length(o) <= max(spacing * 1.1, 30) { grabPatch.append((k, o)); pinned[k] = true }
         } }
         grabLiftNow = pos[best].z
         grabTarget = pos[best]
@@ -173,7 +176,16 @@ public final class Cloth {
         let h = dt * params.timeScale / Float(n)
         if let g = grabbed {
             grabLiftNow += (params.grabLift - grabLiftNow) * min(1, dt * 10)
-            grabTarget.z = floorHeight(SIMD2(grabTarget.x, grabTarget.y)) + grabLiftNow
+            // 手要跟著底下那層布的高度走，角才是「舉過」地毯再放下，不會從底下鑽過去
+            var under = floorHeight(SIMD2(grabTarget.x, grabTarget.y))
+            let reach = collisionRadius * 2
+            let isPinned = pinned
+            for k in pos.indices where isPinned.isEmpty || !isPinned[k] {
+                if simd_length(SIMD2(pos[k].x - grabTarget.x, pos[k].y - grabTarget.y)) < reach {
+                    under = max(under, pos[k].z + reach)
+                }
+            }
+            grabTarget.z = max(floorHeight(SIMD2(grabTarget.x, grabTarget.y)) + grabLiftNow, under)
             _ = g
         }
         let start = pos
@@ -286,10 +298,12 @@ public final class Cloth {
         }
     }
 
+    var collisionRadius: Float { max(params.thickness, restSize.x / Float(nx - 1) * params.collisionScale) }
+
     /// 布自己疊起來時互相推開：不相鄰的兩個質點距離小於 2r 就各退一半。
     /// 對稱的推法不會越疊越高；r 取接近格距的一半，上層才不會從下層格子間漏下去。
     private func collideSelf() {
-        let r = max(params.thickness, restSize.x / Float(nx - 1) * 0.5)
+        let r = collisionRadius
         let cell = 2 * r
         let nx = self.nx
         let isPinned = pinned
@@ -326,15 +340,18 @@ public final class Cloth {
                         let d = P[o] - P[k]
                         let len = simd_length(d)
                         if len >= minD || len < 1e-5 { continue }
-                        let wk: Float = !isPinned.isEmpty && isPinned[k] ? 0 : 1
-                        let wo: Float = !isPinned.isEmpty && isPinned[o] ? 0 : 1
+                        // 上層多退、下層少退：下層貼地不能往下，平分的話會被往旁邊擠開，上層就從縫掉下去
+                        let kLower = P[k].z < P[o].z
+                        let wk: Float = !isPinned.isEmpty && isPinned[k] ? 0 : (kLower ? params.lowerShare : 1)
+                        let wo: Float = !isPinned.isEmpty && isPinned[o] ? 0 : (kLower ? 1 : params.lowerShare)
                         if wk + wo == 0 { continue }
                         let corr = d * ((minD - len) / len / (wk + wo))
                         P[k] -= corr * wk
                         P[o] += corr * wo
-                        // 層間摩擦：兩點的水平相對速度互相拉近
+                        // 層間摩擦：兩點的水平相對速度互相拉近（被抓著的點不拖動下層）
+                        if wk == 0 || wo == 0 { continue }
                         let vk = P[k] - V[k], vo = P[o] - V[o]
-                        let rel = (vo - vk) * 0.25
+                        let rel = (vo - vk) * (params.layerFriction * 0.5)
                         V[k] -= SIMD3(rel.x, rel.y, 0) * wk
                         V[o] += SIMD3(rel.x, rel.y, 0) * wo
                     }

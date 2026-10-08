@@ -101,6 +101,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     var texture: MTLTexture?
     /// 每次畫之前由 controller 給目前的布（nil = 地毯收起來了）
     var cloth: Cloth?
+    private var mesh: RenderMesh?
+    private weak var meshSource: Cloth?
 
     init(view: MTKView) {
         device = view.device!
@@ -170,12 +172,15 @@ final class Renderer: NSObject, MTKViewDelegate {
             cmd.present(drawable); cmd.commit(); return
         }
 
-        let nrm = cloth.normals()
-        var verts = [Vertex](); verts.reserveCapacity(cloth.indices.count)
-        for i in cloth.indices {
+        if mesh == nil || meshSource !== cloth { mesh = RenderMesh(cloth: cloth); meshSource = cloth }
+        else { mesh!.update(from: cloth) }
+        let m = mesh!
+        var verts = [Vertex](); verts.reserveCapacity(m.indices.count + m.side.count)
+        for i in m.indices {
             let k = Int(i)
-            verts.append(Vertex(pos: cloth.pos[k], nrm: nrm[k], uv: cloth.uv[k]))
+            verts.append(Vertex(pos: m.pos[k], nrm: m.normals[k], uv: m.uv[k]))
         }
+        for v in m.side { verts.append(Vertex(pos: v.pos, nrm: v.nrm, uv: v.uv)) }
         let vbuf = device.makeBuffer(bytes: verts, length: MemoryLayout<Vertex>.stride * verts.count)!
         let b = view.bounds.size
         var u = Uniforms(view: SIMD2(Float(b.width), Float(b.height)), cam: cameraHeight,
