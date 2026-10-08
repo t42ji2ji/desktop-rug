@@ -13,6 +13,7 @@ final class RugView: MTKView {
     private var needsDraw = true
     private(set) var editMode = false
     private var timer: Timer?
+    private var saveWhenSettled = false
     var onChange: (() -> Void)?   // 擺法變了，要存檔
 
     enum Drag {
@@ -142,6 +143,11 @@ final class RugView: MTKView {
             updateProjection()
             needsDraw = true
         }
+        // 拖完放手時布還在半空，等它躺平再存，存到的擺法才對
+        if saveWhenSettled, drag == nil, cloth?.isSettled ?? true {
+            saveWhenSettled = false
+            onChange?()
+        }
         if needsDraw {
             needsDraw = false
             draw()
@@ -242,13 +248,12 @@ final class RugView: MTKView {
 
     override func mouseUp(with e: NSEvent) {
         guard let d = drag else { return }
-        if case .grab = d { cloth?.release() }
         NSCursor.pop()
         drag = nil
         activeCorner = nil
         angleLabel = nil
         needsDraw = true
-        onChange?()
+        if case .grab = d { cloth?.release(); saveWhenSettled = true } else { onChange?() }
     }
 
     /// 拖角落縮放：對角固定、保持長寬比（花色才不會被拉歪）。
