@@ -85,6 +85,8 @@ struct CatOut { float4 position [[position]]; float2 uv; };
 
 vertex CatOut cat_vs(uint vid [[vertex_id]], const device CatV* v [[buffer(0)]], constant U& u [[buffer(1)]]) {
     CatOut o; o.position = project(v[vid].pos, u); o.uv = v[vid].uv;
+    // 遮擋時把貓當成高 12pt：皺褶、凸起擋不到它，真的翻過來蓋住的布（高 20pt 以上）才擋得住
+    o.position.z -= 12.0 / 4000.0;
     return o;
 }
 
