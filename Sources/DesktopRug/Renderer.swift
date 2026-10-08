@@ -84,7 +84,7 @@ struct CatV { float3 pos; float2 uv; };
 struct CatOut { float4 position [[position]]; float2 uv; };
 
 vertex CatOut cat_vs(uint vid [[vertex_id]], const device CatV* v [[buffer(0)]], constant U& u [[buffer(1)]]) {
-    CatOut o; o.position = project(v[vid].pos, u); o.position.z = 0; o.uv = v[vid].uv;
+    CatOut o; o.position = project(v[vid].pos, u); o.uv = v[vid].uv;
     return o;
 }
 
@@ -142,7 +142,13 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// 要畫的貓：哪一種、哪個姿勢。座標是地毯局部座標，在這裡貼到毯面上
     var cats: [(kind: Int, pose: Cat.Pose)] = []
     var catSprites: CatSprites?
-    var catLength: Float = 85
+    var catLength: Float = 140
+    private lazy var catDepth: MTLDepthStencilState = {
+        let d = MTLDepthStencilDescriptor()
+        d.depthCompareFunction = .less   // 被翻過來的布蓋住就看不到
+        d.isDepthWriteEnabled = false
+        return device.makeDepthStencilState(descriptor: d)!
+    }()
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -288,31 +294,45 @@ extension Renderer {
     /// 貓貼在毯面上：位置取細網格在那個 uv 的表面，方向 = 地毯角度 + 貓自己的朝向。先畫影子再畫貓。
     fileprivate func drawCats(_ e: MTLRenderCommandEncoder, mesh: RenderMesh, cloth: Cloth, uniforms u: inout Uniforms) {
         guard let sprites = catSprites, !cats.isEmpty else { return }
-        let rugAngle = cloth.fittedPlacement().angle
+        let placement = cloth.fittedPlacement()
+        let rugAngle = placement.angle
         let size = cloth.restSize
         e.setRenderPipelineState(catPipe)
-        e.setDepthStencilState(nil)
+        e.setDepthStencilState(catDepth)
         e.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
         for (kind, pose) in cats where kind < sprites.kinds.count {
             let k = sprites.kinds[kind]
-            guard let tex = k.textures[pose.anim] else { continue }
+            // 抬頭看的圖還沒有：先用站姿
+            let tex: MTLTexture, frame: Int
+            if let t = k.textures[pose.anim] { tex = t; frame = pose.frame }
+            else if let t = k.textures[.walk] { tex = t; frame = 0 } else { continue }
             let uv = SIMD2(pose.pos.x / size.x + 0.5, pose.pos.y / size.y + 0.5)
-            let (center, _) = mesh.sample(uv)
-            let w = catLength / k.bodyLength, h = w * (128.0 / 192.0)
+            var (center, normal) = mesh.sample(uv)
+            var scale: Float = 1
+            if pose.lifted {
+                // 被拎起來：跟著手（可能在地毯外），浮在布面上方、放大一點
+                let xy = placement.point(u: uv.x, v: uv.y)
+                center = SIMD3(xy.x, xy.y, center.z + 35)
+                normal = SIMD3(0, 0, 1)
+                scale = 1.12
+            }
+            let w = catLength / k.bodyLength * scale, h = w * (128.0 / 192.0)
             let a = rugAngle + pose.heading
-            let ax = SIMD2(cos(a), sin(a)), ay = SIMD2(-sin(a), cos(a))
-            let col = Float(pose.frame % 4), row = Float(pose.frame / 4)
+            // 貼著布面：方向投影到布面的切平面上，皺褶、斜坡上就跟著斜
+            func onPlane(_ v: SIMD3<Float>) -> SIMD3<Float> { simd_normalize(v - normal * simd_dot(v, normal)) }
+            let ax = onPlane(SIMD3(cos(a), sin(a), 0)), ay = onPlane(SIMD3(-sin(a), cos(a), 0))
+            let col = Float(frame % 4), row = Float(frame / 4)
             // 貼圖原點在左上：格子上緣（v 小）是貓的左側（局部 +y）
             func corner(_ sx: Float, _ sy: Float) -> CatVertex {
-                let p = SIMD2(center.x, center.y) + ax * (sx * w / 2) + ay * (sy * h / 2)
-                return CatVertex(pos: SIMD3(p.x, p.y, center.z + 1),
-                                 uv: SIMD2((col + (sx + 1) / 2) / 4, (row + (1 - sy) / 2) / 4))
+                let p = center + normal * 2 + ax * (sx * w / 2) + ay * (sy * h / 2)
+                return CatVertex(pos: p, uv: SIMD2((col + (sx + 1) / 2) / 4, (row + (1 - sy) / 2) / 4))
             }
             var quad = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, -1), corner(1, 1), corner(-1, 1)]
             e.setFragmentTexture(tex, index: 0)
-            // 影子：往右下偏一點
-            var shadow = quad.map { CatVertex(pos: $0.pos + SIMD3(2, -3, -1), uv: $0.uv) }
-            var shade: Float = -0.28
+            // 影子：往右下偏，拎起來時偏更遠、更淡
+            let off: SIMD3<Float> = pose.lifted ? SIMD3(10, -14, -36) : SIMD3(2, -3, -1)
+            var shadow = quad.map { CatVertex(pos: $0.pos + off, uv: $0.uv) }
+            var shade: Float = pose.lifted ? -0.18 : -0.28
             e.setVertexBytes(&shadow, length: MemoryLayout<CatVertex>.stride * 6, index: 0)
             e.setFragmentBytes(&shade, length: 4, index: 2)
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)

@@ -23,6 +23,40 @@ func load(_ url: URL) -> (w: Int, h: Int, px: [UInt8])? {
     return (w, h, px)   // 第 0 列是圖的最上面
 }
 
+/// GPT 的透明圖在背景留了很多幾乎透明的彩色雜點：太透明的歸零，再刪掉每格裡跟身體不相連的小碎塊。
+func cleanSpecks(_ ctx: CGContext, cellW: Int, cellH: Int) {
+    let w = ctx.width, h = ctx.height, bpr = ctx.bytesPerRow
+    let px = ctx.data!.bindMemory(to: UInt8.self, capacity: bpr * h)
+    for y in 0..<h { for x in 0..<w where px[y * bpr + x * 4 + 3] < 30 {
+        for c in 0..<4 { px[y * bpr + x * 4 + c] = 0 }
+    } }
+    var seen = [Bool](repeating: false, count: w * h)
+    for cy in stride(from: 0, to: h, by: cellH) { for cx in stride(from: 0, to: w, by: cellW) {
+        var comps: [[Int]] = []
+        for y in cy..<min(cy + cellH, h) { for x in cx..<min(cx + cellW, w) {
+            let i = y * w + x
+            if seen[i] || px[y * bpr + x * 4 + 3] == 0 { continue }
+            var stack = [i], comp: [Int] = []
+            seen[i] = true
+            while let k = stack.popLast() {
+                comp.append(k)
+                let kx = k % w, ky = k / w
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let nx = kx + dx, ny = ky + dy
+                    guard nx >= cx, ny >= cy, nx < min(cx + cellW, w), ny < min(cy + cellH, h) else { continue }
+                    let n = ny * w + nx
+                    if !seen[n] && px[ny * bpr + nx * 4 + 3] != 0 { seen[n] = true; stack.append(n) }
+                }
+            }
+            comps.append(comp)
+        } }
+        guard let biggest = comps.map(\.count).max() else { continue }
+        for comp in comps where comp.count < max(40, biggest / 50) {
+            for k in comp { for c in 0..<4 { px[(k / w) * bpr + (k % w) * 4 + c] = 0 } }
+        }
+    } }
+}
+
 var meta: [String: [String: Double]] = [:]
 let files = (try? FileManager.default.contentsOfDirectory(at: rawDir, includingPropertiesForKeys: nil)) ?? []
 for url in files.filter({ $0.pathExtension == "png" }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
@@ -64,15 +98,16 @@ for url in files.filter({ $0.pathExtension == "png" }).sorted(by: { $0.lastPathC
         let col = f % cols, row = f / cols
         // CoreGraphics 原點在左下：輸出第 row 列（由上數）在 y = (rows-1-row)*h
         let dst = CGRect(x: col * outCell.w, y: (rows - 1 - row) * outCell.h, width: outCell.w, height: outCell.h)
+        // 只取這一格自己的內容再位移，隔壁格子的尾巴尖才不會被帶進來
+        let cellRect = CGRect(x: Double(col) * cw, y: Double(row) * ch, width: cw, height: ch).integral
+        guard let cell = srcImg.cropping(to: cellRect) else { continue }
         ctx.saveGState()
         ctx.clip(to: dst)
-        // 把整張原圖放好，讓這一格（含位移）落在 dst
-        let ox = Double(dst.minX) - (Double(col) * cw - shiftX) * sx
-        let oyTop = Double(row) * ch - shiftY   // 這格在原圖的上緣（含位移）
-        let oy = Double(dst.maxY) - (Double(img.h) - oyTop) * sy
-        ctx.draw(srcImg, in: CGRect(x: ox, y: oy, width: Double(img.w) * sx, height: Double(img.h) * sy))
+        ctx.draw(cell, in: CGRect(x: Double(dst.minX) + shiftX * sx, y: Double(dst.minY) - shiftY * sy,
+                                  width: Double(cell.width) * sx, height: Double(cell.height) * sy))
         ctx.restoreGState()
     }
+    cleanSpecks(ctx, cellW: outCell.w, cellH: outCell.h)
     let out = outDir.appendingPathComponent(name + ".png")
     let dest = CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)

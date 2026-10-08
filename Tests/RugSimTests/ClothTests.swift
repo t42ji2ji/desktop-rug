@@ -139,6 +139,19 @@ final class ClothTests: XCTestCase {
         }
     }
 
+    /// 被翻過來的角蓋住的地方要認得出來
+    func testCovered() {
+        let c = Cloth(placement: place)
+        XCTAssertFalse(c.isCovered(uv: SIMD2(0.5, 0.5)))
+        let corner = place.point(u: 1, v: 1), to = place.point(u: 0.55, v: 0.55)
+        c.grab(near: corner)
+        for f in 0..<60 { c.moveGrab(to: corner + (to - corner) * Float(f) / 59); c.step(dt: 1 / 60) }
+        c.release()
+        for _ in 0..<240 where !c.isSettled { c.step(dt: 1 / 60) }
+        XCTAssertTrue(c.isCovered(uv: SIMD2(0.6, 0.6)), "被翻過來的角蓋住")
+        XCTAssertFalse(c.isCovered(uv: SIMD2(0.15, 0.15)), "遠處沒事")
+    }
+
     func testStepPerformance() {
         let c = Cloth(placement: place)
         c.grab(near: place.point(u: 1, v: 1))

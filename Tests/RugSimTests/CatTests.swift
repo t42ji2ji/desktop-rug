@@ -26,7 +26,7 @@ final class CatTests: XCTestCase {
             XCTAssert((0..<Cat.frames).contains(p.frame))
         }
         XCTAssertLessThan(maxOut, -10, "貓不能走出地毯")
-        XCTAssertEqual(seen, ["walk", "belly", "scratch"], "兩分鐘內三種動作都要出現")
+        XCTAssertEqual(seen, ["walk", "belly", "scratch", "lookup"], "兩分鐘內每種動作都要出現")
     }
 
     func testWalkFramesFollowDistance() {
@@ -41,6 +41,32 @@ final class CatTests: XCTestCase {
             last = c.pos
         }
         XCTAssertGreaterThan(moved, 50)
+    }
+
+    func testPickUpCarryDrop() {
+        var c = Cat(pos: .zero, heading: 0, length: 90, seed: 5)
+        c.pickUp()
+        c.carry(to: SIMD2(900, 0))            // 拎到地毯外面
+        c.update(dt: 1 / 60, rugSize: rug, others: [])
+        XCTAssertTrue(c.pose.lifted)
+        XCTAssertEqual(c.pose.pos.x, 900, "拎著的時候跟著手，不收回地毯")
+        c.drop()
+        c.update(dt: 1 / 60, rugSize: rug, others: [])
+        XCTAssertFalse(c.pose.lifted)
+        XCTAssertLessThan(abs(c.pos.x), rug.x / 2, "放下後回到地毯上")
+    }
+
+    /// 被蓋住：鑽出來，而且之後的目的地也不挑被蓋住的地方
+    func testCatLeavesWrinkledArea() {
+        // 地毯右半邊 x > 0 都被蓋住
+        let ok: (SIMD2<Float>) -> Bool = { $0.x < 0 }
+        var c = Cat(pos: SIMD2(100, 0), heading: 0, length: 90, seed: 11)
+        var maxRightAfter: Float = -.infinity
+        for f in 0..<(60 * 60) {
+            c.update(dt: 1 / 60, rugSize: rug, others: [], spotOK: ok)
+            if f > 120 { maxRightAfter = max(maxRightAfter, c.pos.x) }
+        }
+        XCTAssertLessThan(maxRightAfter, 1, "兩秒內鑽出來，之後不再走回去")
     }
 
     func testShrinkingRugPullsCatBackOn() {

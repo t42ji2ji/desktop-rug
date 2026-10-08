@@ -18,8 +18,8 @@ final class CatSprites {
                 let url = dir.appendingPathComponent("\(name)-\(anim.rawValue).png")
                 if let t = try? loader.newTexture(URL: url, options: [.SRGB: false, .generateMipmaps: true]) { tex[anim] = t }
             }
-            // 三支動畫都齊了才放出來
-            if tex.count == Cat.Anim.allCases.count {
+            // 走路、翻肚、抓癢齊了就放出來；抬頭看還沒生的話畫面會先用站姿代替
+            if [Cat.Anim.walk, .belly, .scratch].allSatisfy({ tex[$0] != nil }) {
                 kinds.append(Kind(name: name, textures: tex, bodyLength: Float(meta[name]?["bodyLength"] ?? 0.7)))
             }
         }

@@ -415,6 +415,22 @@ public final class Cloth {
         return a.z + s * (b.z - a.z) + tt * (c.z - a.z)
     }
 
+    /// 地毯上某個 uv 的位置有沒有被別層（翻過來的）布蓋住。貓被蓋住要鑽出來；皺褶、掀起就讓牠貼著跟著動。
+    public func isCovered(uv q: SIMD2<Float>) -> Bool {
+        let fx = min(max(q.x, 0), 1) * Float(nx - 1), fy = min(max(q.y, 0), 1) * Float(ny - 1)
+        let i = min(Int(fx), nx - 2), j = min(Int(fy), ny - 2)
+        let tx = fx - Float(i), ty = fy - Float(j)
+        let a = pos[index(i, j)], b = pos[index(i + 1, j)], c = pos[index(i, j + 1)], d = pos[index(i + 1, j + 1)]
+        let p = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+        let spacing = restSize.x / Float(nx - 1)
+        for k in pos.indices where pos[k].z > p.z + params.thickness {
+            let ki = k % nx, kj = k / nx
+            if abs(ki - i) <= 2 && abs(kj - j) <= 2 { continue }
+            if simd_length(SIMD2(pos[k].x - p.x, pos[k].y - p.y)) < spacing * 0.8 { return true }
+        }
+        return false
+    }
+
     /// 直接擺姿勢（動畫用），不跑物理。
     public func pose(_ f: (SIMD2<Float>) -> SIMD3<Float>) {
         for k in pos.indices { pos[k] = f(uv[k]) }

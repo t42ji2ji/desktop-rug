@@ -81,6 +81,7 @@ final class RugController: NSObject {
         case grab
         case move(start: SIMD2<Float>, from: RugPlacement)
         case resize(corner: Int, from: RugPlacement)
+        case cat(index: Int)
     }
     private var drag: Drag?
 
@@ -319,7 +320,7 @@ final class RugController: NSObject {
             else if editMode {
                 let local = CGPoint(x: CGFloat(mouse.x - cam.origin.x), y: CGFloat(mouse.y - cam.origin.y))
                 hit = editTarget(at: mouse) != nil || s.overlay.toolbarHit(local)
-            } else { hit = clothHit(mouse, camera: cam) }
+            } else { hit = catAt(mouse) != nil || clothHit(mouse, camera: cam) }
             if w.ignoresMouseEvents == hit { w.ignoresMouseEvents = !hit }
             anyHit = anyHit || hit
         }
@@ -331,7 +332,10 @@ final class RugController: NSObject {
             let positions = cats.map(\.cat.pos)
             for i in cats.indices {
                 let others = positions.enumerated().filter { $0.offset != i }.map(\.element)
-                cats[i].cat.update(dt: 1.0 / 60, rugSize: cloth.restSize, others: others)
+                let size = cloth.restSize
+                cats[i].cat.update(dt: 1.0 / 60, rugSize: size, others: others) { p in
+                    !cloth.isCovered(uv: SIMD2(p.x / size.x + 0.5, p.y / size.y + 0.5))
+                }
             }
             needsDraw = true
         }
@@ -403,6 +407,12 @@ final class RugController: NSObject {
             case .corner(let k): drag = .resize(corner: k, from: p); activeCorner = k; NSCursor.crosshair.push()
             case .body: drag = .move(start: q, from: p); NSCursor.closedHand.push()
             }
+        } else if let i = catAt(q) {
+            // 點到貓：拎起來（貓在地毯上面，優先於抓地毯）
+            cats[i].cat.pickUp()
+            cats[i].cat.carry(to: rugLocal(q))
+            drag = .cat(index: i)
+            NSCursor.closedHand.push()
         } else {
             guard let cam = surface(containing: q)?.camera else { return }
             cloth.grab(near: cam.unproject(q, z: 0))
@@ -432,6 +442,8 @@ final class RugController: NSObject {
             cloth.flatten(to: p)
         case .resize(let k, let p):
             cloth.flatten(to: resized(p, corner: k, to: q))
+        case .cat(let i):
+            cats[i].cat.carry(to: rugLocal(q))
         }
         needsDraw = true
     }
@@ -442,7 +454,32 @@ final class RugController: NSObject {
         drag = nil
         activeCorner = nil
         needsDraw = true
-        if case .grab = d { cloth?.release(); saveWhenSettled = true } else { onChange?() }
+        switch d {
+        case .grab: cloth?.release(); saveWhenSettled = true
+        case .cat(let i): cats[i].cat.drop()
+        default: onChange?()
+        }
+    }
+
+    /// 統一座標 → 地毯局部座標（地毯中心為原點、沿地毯的軸）
+    private func rugLocal(_ q: SIMD2<Float>) -> SIMD2<Float> {
+        guard let p = cloth?.fittedPlacement() else { return q }
+        return SIMD2(simd_dot(q - p.center, p.axisX), simd_dot(q - p.center, p.axisY))
+    }
+
+    /// 游標底下有沒有貓（橢圓判定，大約是身體不含尾巴）
+    private func catAt(_ q: SIMD2<Float>) -> Int? {
+        guard catsEnabled, stow == nil, cloth != nil else { return nil }
+        let local = rugLocal(q)
+        for i in cats.indices.reversed() {
+            let c = cats[i].cat
+            let d = local - c.pos
+            let a = -c.heading
+            let r = SIMD2(d.x * cos(a) - d.y * sin(a), d.x * sin(a) + d.y * cos(a))
+            let L = tuning.catLength
+            if pow(r.x / (L * 0.4), 2) + pow(r.y / (L * 0.2), 2) <= 1 { return i }
+        }
+        return nil
     }
 
     /// 拖角落縮放：對角固定、保持長寬比（花色才不會被拉歪）。
