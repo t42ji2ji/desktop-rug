@@ -96,6 +96,49 @@ final class ClothTests: XCTestCase {
         XCTAssertGreaterThan(simd_length(c.fittedPlacement().center - place.center), 500, "整張要跟著走")
     }
 
+    /// 掀角放下後再抓那個翻上來的角拉回去：只能抓到上層，拉回去要能攤平，不能上下黏住
+    func testRegrabFoldedCornerUnfolds() {
+        let c = Cloth(placement: place)
+        let corner = place.point(u: 1, v: 1), to = place.point(u: 0.55, v: 0.55)
+        c.grab(near: corner)
+        for f in 0..<60 { c.moveGrab(to: corner + (to - corner) * Float(f) / 59); c.step(dt: 1 / 60) }
+        c.release()
+        for _ in 0..<240 where !c.isSettled { c.step(dt: 1 / 60) }
+        let tipIndex = c.index(c.nx - 1, c.ny - 1)
+        let tip = c.pos[tipIndex]
+        XCTAssertGreaterThan(tip.z, 3, "前提：角要先躺在上層")
+        // 從畫面上點那個角（點在它上面一點點的位置）
+        c.grab(near: SIMD2(tip.x, tip.y) + SIMD2(-4, -4))
+        XCTAssertEqual(c.grabbed, tipIndex, "要抓到上層翻過來的角，不是底下那層")
+        let start = SIMD2(tip.x, tip.y)
+        for f in 0..<60 { c.moveGrab(to: start + (corner - start) * Float(f) / 59); c.step(dt: 1 / 60) }
+        c.release()
+        for _ in 0..<300 where !c.isSettled { c.step(dt: 1 / 60) }
+        let maxZ = c.pos.map(\.z).max()!
+        print("REGRAB maxZ after unfold", maxZ, "tip", c.pos[tipIndex])
+        XCTAssertLessThan(maxZ, 15, "拉回去要攤平")
+        XCTAssertLessThan(simd_length(SIMD2(c.pos[tipIndex].x, c.pos[tipIndex].y) - corner), 60)
+    }
+
+    /// 點在翻上來那片布的折痕附近：抓起的那一小塊只能有上層的點
+    func testGrabNearCreaseTakesOnlyTopLayer() {
+        let view = SIMD2<Float>(1920, 1080), w = view.x * 0.42
+        let p = RugPlacement(center: view * 0.5, angle: 0, size: SIMD2(w, w / 1.5))
+        let c = Cloth(placement: p)
+        let corner = p.point(u: 1, v: 1), to = p.point(u: 0.55, v: 0.55)
+        c.grab(near: corner)
+        for f in 0..<60 { c.moveGrab(to: corner + (to - corner) * Float(f) / 59); c.step(dt: 1 / 60) }
+        c.release()
+        for _ in 0..<240 where !c.isSettled { c.step(dt: 1 / 60) }
+        for (u, v) in [(0.8, 0.95), (0.85, 0.75), (0.75, 0.85)] as [(Float, Float)] {
+            let q = c.pos[c.index(Int(u * Float(c.nx - 1)), Int(v * Float(c.ny - 1)))]
+            c.grab(near: SIMD2(q.x, q.y))
+            let zs = c.grabPatch.map { c.pos[$0.k].z }
+            XCTAssertLessThan(zs.max()! - zs.min()!, c.collisionRadius * 2, "抓到下層會兩層黏在一起")
+            c.release()
+        }
+    }
+
     func testStepPerformance() {
         let c = Cloth(placement: place)
         c.grab(near: place.point(u: 1, v: 1))

@@ -66,7 +66,7 @@ public final class Cloth {
     public private(set) var grabbed: Int?
     private var grabTarget = SIMD3<Float>(0, 0, 0)
     /// 抓住的一小塊：手抓一把，不是捏一個點（捏一點會出現薄絲巾那種放射皺褶）
-    private var grabPatch: [(k: Int, offset: SIMD2<Float>)] = []
+    private(set) var grabPatch: [(k: Int, offset: SIMD3<Float>)] = []
     private var pinned: [Bool] = []
     private var grabLiftNow: Float = 0
     public private(set) var lastMotion: Float = .infinity
@@ -134,12 +134,15 @@ public final class Cloth {
 
     /// 抓住離 (x,y) 最近、最上層的質點。target 用螢幕上看到的位置（已經投影過的），由呼叫端換算。
     public func grab(near q: SIMD2<Float>) {
-        var best = -1; var bestScore = Float.infinity
+        // 點擊位置附近取最高的那個點（看得到的是最上層）；附近沒有就取最近的
+        let reach = restSize.x / Float(nx - 1) * 0.8
+        var best = -1, bestZ = -Float.infinity, nearest = -1, nearestD = Float.infinity
         for k in pos.indices {
             let d = simd_length(SIMD2(pos[k].x, pos[k].y) - q)
-            let score = d - pos[k].z * 0.5   // 疊在上面的那層優先
-            if score < bestScore { bestScore = score; best = k }
+            if d < nearestD { nearestD = d; nearest = k }
+            if d < reach && pos[k].z > bestZ { bestZ = pos[k].z; best = k }
         }
+        if best < 0 { best = nearest }
         guard best >= 0 else { return }
         grabbed = best
         calmFrames = 0
@@ -147,14 +150,17 @@ public final class Cloth {
         let e = min(max((d - 0.08) / 0.17, 0), 1)
         grabRigidity = e * e * (3 - 2 * e)
         let spacing = restSize.x / Float(nx - 1)
-        let c = SIMD2(pos[best].x, pos[best].y)
+        let c = pos[best]
         let bi = best % nx, bj = best / nx
         grabPatch = []
         pinned = Array(repeating: false, count: pos.count)
         for j in max(0, bj - 2)...min(ny - 1, bj + 2) { for i in max(0, bi - 2)...min(nx - 1, bi + 2) {
             let k = index(i, j)
-            let o = SIMD2(pos[k].x, pos[k].y) - c
-            if simd_length(o) <= max(spacing * 1.1, 30) { grabPatch.append((k, o)); pinned[k] = true }
+            let o = pos[k] - c
+            // 同一層才抓：折痕附近格子相鄰的點可能繞到下層，抓了兩層會黏在一起
+            if simd_length(SIMD2(o.x, o.y)) <= max(spacing * 1.1, 30) && abs(o.z) < collisionRadius {
+                grabPatch.append((k, o)); pinned[k] = true
+            }
         } }
         grabLiftNow = pos[best].z
         grabTarget = pos[best]
@@ -280,7 +286,7 @@ public final class Cloth {
         for (k, o) in grabPatch {
             // 抓點用彈簧追目標，不要瞬移，拉起來比較有重量感
             let p = pos[k]
-            let target = grabTarget + SIMD3(o.x, o.y, 0)
+            let target = grabTarget + o
             prev[k] = p
             pos[k] = p + (target - p) * params.grabFollow
         }
