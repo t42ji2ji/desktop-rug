@@ -1,33 +1,57 @@
 import AppKit
+import UniformTypeIdentifiers
 import RugSim
 import simd
 
-/// 地毯花色：app bundle 的 Resources/patterns/*.png。
+/// 地毯花色：app bundle 的 Resources/patterns，加上使用者自己加的（Application Support/DesktopRug/patterns）。
 struct Pattern {
     let id: String
     let url: URL
-    var title: String { Pattern.titles[id] ?? id }
+    var title: String { Pattern.title(for: id) }
 
     static let titles = [
         "persian-red": "波斯紅", "blue-tabriz": "大不里士藍", "beni-ourain": "摩洛哥白",
         "kilim": "基里姆", "sage-modern": "鼠尾草綠", "retro-check": "復古格紋",
         "pink-floral": "玫瑰古董", "pixel-space": "太空",
     ]
+    static func title(for id: String) -> String { titles[id] ?? id }
+    static let defaultID = "retro-check"
+
+    static let imageExtensions: Set = ["png", "jpg", "jpeg", "heic", "tif", "tiff", "webp"]
+
+    static var userDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("DesktopRug/patterns", isDirectory: true)
+    }
 
     static func all() -> [Pattern] {
-        let dirs = [Bundle.main.resourceURL?.appendingPathComponent("patterns"),
-                    URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("patterns")]
-        for case let dir? in dirs {
+        func list(_ dir: URL?) -> [Pattern] {
+            guard let dir else { return [] }
             let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-            let pngs = files.filter { $0.pathExtension.lowercased() == "png" }
+            return files.filter { imageExtensions.contains($0.pathExtension.lowercased()) }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            if !pngs.isEmpty {
-                let list = pngs.map { Pattern(id: $0.deletingPathExtension().lastPathComponent, url: $0) }
-                // 波斯紅（原作那款）排第一
-                return list.sorted { ($0.id == "persian-red" ? 0 : 1, $0.id) < ($1.id == "persian-red" ? 0 : 1, $1.id) }
-            }
+                .map { Pattern(id: $0.deletingPathExtension().lastPathComponent, url: $0) }
         }
-        return []
+        var builtIn = list(Bundle.main.resourceURL?.appendingPathComponent("patterns"))
+        if builtIn.isEmpty {
+            builtIn = list(URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("patterns"))
+        }
+        // 預設的復古格紋排第一，自己加的排最後
+        builtIn.sort { ($0.id == defaultID ? 0 : 1, $0.id) < ($1.id == defaultID ? 0 : 1, $1.id) }
+        return builtIn + list(userDir)
+    }
+
+    /// 把本機圖片複製進 app 的花色資料夾，回傳新花色。
+    static func importImage(_ src: URL) -> Pattern? {
+        try? FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+        let name = src.deletingPathExtension().lastPathComponent
+        var dest = userDir.appendingPathComponent(src.lastPathComponent)
+        var n = 2
+        while FileManager.default.fileExists(atPath: dest.path) {
+            dest = userDir.appendingPathComponent("\(name) \(n).\(src.pathExtension)"); n += 1
+        }
+        guard (try? FileManager.default.copyItem(at: src, to: dest)) != nil else { return nil }
+        return Pattern(id: dest.deletingPathExtension().lastPathComponent, url: dest)
     }
 }
 
@@ -35,14 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var window: NSPanel!
     var view: RugView!
     var statusItem: NSStatusItem!
-    let patterns = Pattern.all()
+    var patterns = Pattern.all()
     let defaults = UserDefaults.standard
     let iconQueue = DispatchQueue(label: "desktop-icons")
     var lastIcons: DesktopIcons.Snapshot?
     var tuningPanel: TuningPanel?
 
     var patternID: String {
-        get { defaults.string(forKey: "pattern") ?? patterns.first?.id ?? "" }
+        get { defaults.string(forKey: "pattern") ?? Pattern.defaultID }
         set { defaults.set(newValue, forKey: "pattern") }
     }
 
@@ -68,8 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.orderFrontRegardless()
 
         view.onChange = { [weak self] in self?.save() }
-        view.overlay.designButton.target = self
-        view.overlay.designButton.action = #selector(showPatternMenu(_:))
+        view.overlay.onPick = { [weak self] id in self?.patternID = id; self?.applyPattern() }
+        view.overlay.addButton.target = self
+        view.overlay.addButton.action = #selector(addLocalImage)
+        refreshSwatches()
         view.overlay.trashButton.target = self
         view.overlay.trashButton.action = #selector(hideRug)
 
@@ -134,16 +160,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return menu
     }
 
-    @objc func showPatternMenu(_ sender: NSButton) {
+    func refreshSwatches() {
+        view.overlay.setPatterns(patterns.map { ($0.id, $0.url) }, selected: patternID)
+    }
+
+    @objc func addLocalImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.message = "選一張圖片當地毯花色"
         view.holdEdit = true
-        patternMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+        NSApp.activate(ignoringOtherApps: true)
+        let ok = panel.runModal() == .OK
         view.holdEdit = false
+        guard ok, let url = panel.url, let p = Pattern.importImage(url) else { return }
+        patterns = Pattern.all()
+        patternID = p.id
+        applyPattern()
+        refreshSwatches()
     }
 
     @objc func pickPattern(_ item: NSMenuItem) {
         guard let id = item.representedObject as? String else { return }
         patternID = id
         applyPattern()
+        view.overlay.select(id)
     }
 
     @objc func hideRug() {

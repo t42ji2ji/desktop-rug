@@ -29,7 +29,7 @@ public struct ClothParams {
     public var drag: Float = 0.985          // 每個 substep 的速度保留
     public var floorFriction: Float = 0.18 // 貼地時每個 substep 吃掉的水平速度比例
     public var moveRigidity: Float = 0.35  // 抓中間拖（移動）時，每個 substep 把整張拉回原形的比例
-    public var dragFriction: Float = 0.04  // 抓中間拖時的地板摩擦（地毯在木地板上順順滑過去）
+    public var dragFriction: Float = 0.34  // 抓中間拖時的地板摩擦（地毯在木地板上順順滑過去）
     public var iterations = 3
     public var timeScale: Float = 1.2      // 整體動作快一點
     public var collisionScale: Float = 0.45// 互推球半徑 = 格距 × 這個
@@ -38,7 +38,7 @@ public struct ClothParams {
     public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
     public var shear: Float = 0.7
-    public var bend: Float = 0.05
+    public var bend: Float = 0.10
     public var grabLift: Float = 45
     public var grabFollow: Float = 0.2     // 抓點每個 substep 追上目標的比例，小 = 拖起來比較重
     public var maxStep: Float = 12         // 每個 substep 最多移動幾點，避免甩飛

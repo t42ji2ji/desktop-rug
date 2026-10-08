@@ -1,13 +1,18 @@
 import AppKit
 import RugSim
 
-/// 編輯模式（右鍵或按著 ⌥）疊在地毯上的控制點、下方的「花色／收起」工具列。
+/// 編輯模式（右鍵或按著 ⌥）疊在地毯上的控制點，和下方一排花色縮圖（最後是「＋」加本機圖片、收起）。
 final class EditOverlay: NSView {
     private var placement: RugPlacement?
     private var activeCorner: Int?
     let toolbar = NSVisualEffectView()
-    let designButton = NSButton()
+    private let row = NSStackView()
     let trashButton = NSButton()
+    let addButton = NSButton()
+    var onPick: ((String) -> Void)?
+    private var swatches: [(id: String, button: NSButton)] = []
+
+    static let swatchSize = NSSize(width: 54, height: 36)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -15,28 +20,77 @@ final class EditOverlay: NSView {
         toolbar.blendingMode = .behindWindow
         toolbar.state = .active
         toolbar.wantsLayer = true
-        toolbar.layer?.cornerRadius = 15
+        toolbar.layer?.cornerRadius = 12
         toolbar.layer?.masksToBounds = true
         toolbar.isHidden = true
 
-        designButton.title = "花色"
-        designButton.image = NSImage(systemSymbolName: "paintbrush.pointed", accessibilityDescription: "花色")
-        designButton.imagePosition = .imageLeading
+        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "加入本機圖片")
         trashButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "收起地毯")
-        trashButton.imagePosition = .imageOnly
-        for b in [designButton, trashButton] {
+        for b in [addButton, trashButton] {
             b.isBordered = false
-            b.font = .systemFont(ofSize: 12, weight: .medium)
+            b.imagePosition = .imageOnly
             b.contentTintColor = .labelColor
-            toolbar.addSubview(b)
         }
-        let divider = NSBox(frame: NSRect(x: 76, y: 7, width: 1, height: 16))
-        divider.boxType = .separator
-        toolbar.addSubview(divider)
-        designButton.frame = NSRect(x: 8, y: 3, width: 64, height: 24)
-        trashButton.frame = NSRect(x: 82, y: 3, width: 28, height: 24)
-        toolbar.frame.size = NSSize(width: 118, height: 30)
+        addButton.wantsLayer = true
+        addButton.layer?.cornerRadius = 4
+        addButton.layer?.borderWidth = 1
+        addButton.layer?.borderColor = NSColor.secondaryLabelColor.cgColor
+        addButton.widthAnchor.constraint(equalToConstant: Self.swatchSize.width).isActive = true
+        addButton.heightAnchor.constraint(equalToConstant: Self.swatchSize.height).isActive = true
+        trashButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+
+        row.orientation = .horizontal
+        row.spacing = 6
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        toolbar.addSubview(row)
         addSubview(toolbar)
+    }
+
+    /// 重建花色縮圖列。
+    func setPatterns(_ items: [(id: String, url: URL)], selected: String) {
+        for v in row.arrangedSubviews { row.removeArrangedSubview(v); v.removeFromSuperview() }
+        swatches = []
+        for item in items {
+            let b = NSButton()
+            b.isBordered = false
+            b.imagePosition = .imageOnly
+            b.imageScaling = .scaleAxesIndependently
+            if let img = NSImage(contentsOf: item.url) { img.size = Self.swatchSize; b.image = img }
+            b.toolTip = Pattern.title(for: item.id)
+            b.target = self
+            b.action = #selector(picked(_:))
+            b.wantsLayer = true
+            b.layer?.cornerRadius = 4
+            b.layer?.masksToBounds = true
+            b.widthAnchor.constraint(equalToConstant: Self.swatchSize.width).isActive = true
+            b.heightAnchor.constraint(equalToConstant: Self.swatchSize.height).isActive = true
+            swatches.append((item.id, b))
+            row.addArrangedSubview(b)
+        }
+        row.addArrangedSubview(addButton)
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        row.addArrangedSubview(divider)
+        row.addArrangedSubview(trashButton)
+        select(selected)
+        row.layoutSubtreeIfNeeded()
+        let size = row.fittingSize
+        row.frame = NSRect(origin: .zero, size: size)
+        toolbar.frame.size = size
+    }
+
+    func select(_ id: String) {
+        for s in swatches {
+            s.button.layer?.borderWidth = s.id == id ? 2.5 : 0
+            s.button.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        }
+    }
+
+    @objc private func picked(_ b: NSButton) {
+        guard let id = swatches.first(where: { $0.button === b })?.id else { return }
+        select(id)
+        onPick?(id)
     }
 
     required init?(coder: NSCoder) { fatalError() }
