@@ -85,8 +85,6 @@ struct CatOut { float4 position [[position]]; float2 uv; };
 
 vertex CatOut cat_vs(uint vid [[vertex_id]], const device CatV* v [[buffer(0)]], constant U& u [[buffer(1)]]) {
     CatOut o; o.position = project(v[vid].pos, u); o.uv = v[vid].uv;
-    // 遮擋時把貓當成高 12pt：皺褶、凸起擋不到它，真的翻過來蓋住的布（高 20pt 以上）才擋得住
-    o.position.z -= 12.0 / 4000.0;
     return o;
 }
 
@@ -145,12 +143,6 @@ final class Renderer: NSObject, MTKViewDelegate {
     var cats: [(kind: Int, pose: Cat.Pose)] = []
     var catSprites: CatSprites?
     var catLength: Float = 140
-    private lazy var catDepth: MTLDepthStencilState = {
-        let d = MTLDepthStencilDescriptor()
-        d.depthCompareFunction = .less   // 被翻過來的布蓋住就看不到
-        d.isDepthWriteEnabled = false
-        return device.makeDepthStencilState(descriptor: d)!
-    }()
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -300,7 +292,7 @@ extension Renderer {
         let rugAngle = placement.angle
         let size = cloth.restSize
         e.setRenderPipelineState(catPipe)
-        e.setDepthStencilState(catDepth)
+        e.setDepthStencilState(nil)   // 貓永遠畫在最上層，不被布擋住
         e.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
         for (kind, pose) in cats where kind < sprites.kinds.count {
             let k = sprites.kinds[kind]
