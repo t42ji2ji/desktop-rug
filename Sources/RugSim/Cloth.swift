@@ -24,15 +24,18 @@ public struct RugPlacement: Codable, Equatable {
 }
 
 public struct ClothParams {
-    public var gravity: Float = 2600
+    public var gravity: Float = 4200
     public var substeps = 6
-    public var drag: Float = 0.995          // 每個 substep 的速度保留
-    public var floorFriction: Float = 0.12  // 貼地時每個 substep 吃掉的水平速度比例
-    public var thickness: Float = 2.5       // 兩層布疊起來的間距
+    public var drag: Float = 0.985          // 每個 substep 的速度保留
+    public var floorFriction: Float = 0.18
+    public var iterations = 3  // 貼地時每個 substep 吃掉的水平速度比例
+    public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
     public var shear: Float = 0.7
-    public var bend: Float = 0.12
-    public var grabLift: Float = 70
+    public var bend: Float = 0.5
+    public var grabLift: Float = 45
+    public var grabFollow: Float = 0.2     // 抓點每個 substep 追上目標的比例，小 = 拖起來比較重
+    public var maxStep: Float = 20         // 每個 substep 最多移動幾點，避免甩飛
     public init() {}
 }
 
@@ -56,6 +59,9 @@ public final class Cloth {
 
     public private(set) var grabbed: Int?
     private var grabTarget = SIMD3<Float>(0, 0, 0)
+    /// 抓住的一小塊：手抓一把，不是捏一個點（捏一點會出現薄絲巾那種放射皺褶）
+    private var grabPatch: [(k: Int, offset: SIMD2<Float>)] = []
+    private var pinned: [Bool] = []
     private var grabLiftNow: Float = 0
     public private(set) var lastMotion: Float = .infinity
     /// 連續幾個 frame 只剩微小晃動。夠久就當作靜摩擦把它定住（休眠）。
@@ -129,6 +135,16 @@ public final class Cloth {
         guard best >= 0 else { return }
         grabbed = best
         calmFrames = 0
+        let spacing = restSize.x / Float(nx - 1)
+        let c = SIMD2(pos[best].x, pos[best].y)
+        let bi = best % nx, bj = best / nx
+        grabPatch = []
+        pinned = Array(repeating: false, count: pos.count)
+        for j in max(0, bj - 2)...min(ny - 1, bj + 2) { for i in max(0, bi - 2)...min(nx - 1, bi + 2) {
+            let k = index(i, j)
+            let o = SIMD2(pos[k].x, pos[k].y) - c
+            if simd_length(o) <= spacing * 2.3 { grabPatch.append((k, o)); pinned[k] = true }
+        } }
         grabLiftNow = pos[best].z
         grabTarget = pos[best]
     }
@@ -137,7 +153,13 @@ public final class Cloth {
         grabTarget.x = q.x; grabTarget.y = q.y
     }
 
-    public func release() { grabbed = nil }
+    public func release() {
+        grabbed = nil
+        grabPatch = []
+        pinned = []
+        // 重地毯放手不會被甩出去：保留四成速度
+        for k in pos.indices { prev[k] = pos[k] - (pos[k] - prev[k]) * 0.4 }
+    }
 
     /// 外部條件變了（例如桌面凸起），讓模擬再跑起來。
     public func wake() { lastMotion = .infinity; calmFrames = 0 }
@@ -156,7 +178,7 @@ public final class Cloth {
         let support = layerCollision ? findSupports(LayerIndex(cloth: self)) : []
         for s in 0..<n {
             integrate(h)
-            solveConstraints()
+            for _ in 0..<params.iterations { solveConstraints() }
             if layerCollision { collideLayers(support) }
             collideFloor()
         }
@@ -171,30 +193,35 @@ public final class Cloth {
 
     private func integrate(_ h: Float) {
         let gStep = params.gravity * h * h
+        for (k, o) in grabPatch {
+            // 抓點用彈簧追目標，不要瞬移，拉起來比較有重量感
+            let p = pos[k]
+            let target = grabTarget + SIMD3(o.x, o.y, 0)
+            prev[k] = p
+            pos[k] = p + (target - p) * params.grabFollow
+        }
+        let isPinned = pinned
         for k in pos.indices {
-            if k == grabbed {
-                // 抓點用彈簧追目標，不要瞬移，拉起來比較有重量感
-                let p = pos[k]
-                prev[k] = p
-                pos[k] = p + (grabTarget - p) * 0.35
-                continue
-            }
+            if !isPinned.isEmpty && isPinned[k] { continue }
             let p = pos[k]
             var v = (p - prev[k]) * params.drag
             v.z -= gStep
+            let speed = simd_length(v)
+            if speed > params.maxStep { v *= params.maxStep / speed }
             prev[k] = p
             pos[k] = p + v
         }
     }
 
     private func solveConstraints() {
-        let g = grabbed ?? -1
+        let isPinned = pinned
+        let anyPinned = !isPinned.isEmpty
         constraints.withUnsafeBufferPointer { C in
         pos.withUnsafeMutableBufferPointer { P in
             for c in C {
                 let a = Int(c.a), b = Int(c.b)
-                let wa: Float = (a == g) ? 0 : 1
-                let wb: Float = (b == g) ? 0 : 1
+                let wa: Float = anyPinned && isPinned[a] ? 0 : 1
+                let wb: Float = anyPinned && isPinned[b] ? 0 : 1
                 let w = wa + wb
                 if w == 0 { continue }
                 let d = P[b] - P[a]
@@ -210,7 +237,8 @@ public final class Cloth {
 
     private func collideFloor() {
         let mu = params.floorFriction
-        for k in pos.indices where k != grabbed {
+        let isPinned = pinned
+        for k in pos.indices where isPinned.isEmpty || !isPinned[k] {
             let f = floorHeight(SIMD2(pos[k].x, pos[k].y))
             if pos[k].z <= f {
                 pos[k].z = f
@@ -228,6 +256,7 @@ public final class Cloth {
     /// 只維持既有的上下關係、不重新判斷，兩層才不會互相往上頂。
     private func findSupports(_ L: LayerIndex) -> [Int32] {
         let nx = self.nx
+        let t = params.thickness
         var out = [Int32](repeating: -1, count: pos.count)
         indices.withUnsafeBufferPointer { I in
         L.items.withUnsafeBufferPointer { items in
@@ -241,25 +270,36 @@ public final class Cloth {
                     let a = Int(I[tri * 3]), b = Int(I[tri * 3 + 1]), c = Int(I[tri * 3 + 2])
                     if abs(a % nx - ki) <= 2 && abs(a / nx - kj) <= 2 { continue }
                     guard let z = Cloth.heightOnTriangle(SIMD2(p.x, p.y), P[a], P[b], P[c]) else { continue }
-                    if z < p.z && z > best { best = z; out[k] = Int32(tri) }
+                    // 只認貼近的下層；離很遠的這個 frame 內碰不到
+                    if z < p.z && z > p.z - 3 * t && z > best { best = z; out[k] = Int32(tri) }
                 }
             }
         } } }
-        return out
+        // 互相支撐（A 踩在 B 區上、B 又踩在 A 區上）代表兩片已經穿插，推了只會一起往上爆，兩邊都不推
+        var cleaned = out
+        for k in out.indices where out[k] >= 0 {
+            let other = Int(indices[Int(out[k]) * 3])
+            for o in [other, other + 1, other + nx] where o < out.count && out[o] >= 0 {
+                let back = Int(indices[Int(out[o]) * 3])
+                if abs(back % nx - k % nx) <= 3 && abs(back / nx - k / nx) <= 3 { cleaned[k] = -1; cleaned[o] = -1 }
+            }
+        }
+        return cleaned
     }
 
     private func collideLayers(_ support: [Int32]) {
         let t = params.thickness
-        let g = grabbed ?? -1
+        let isPinned = pinned
         indices.withUnsafeBufferPointer { I in
         prev.withUnsafeMutableBufferPointer { V in
         pos.withUnsafeMutableBufferPointer { P in
-            for k in 0..<P.count where k != g && support[k] >= 0 {
+            for k in 0..<P.count where support[k] >= 0 && (isPinned.isEmpty || !isPinned[k]) {
                 let tri = Int(support[k])
                 let a = Int(I[tri * 3]), b = Int(I[tri * 3 + 1]), c = Int(I[tri * 3 + 2])
                 guard let z = Cloth.heightOnTriangle(SIMD2(P[k].x, P[k].y), P[a], P[b], P[c], margin: 0.25),
                       P[k].z < z + t else { continue }
-                P[k].z = z + t
+                // 每步往上推有上限，兩層交錯時才不會互相越推越高
+                P[k].z = min(z + t, P[k].z + 0.5 * t)
                 // 層間摩擦，垂直速度歸零（毯子很重，不彈）
                 V[k].x += (P[k].x - V[k].x) * 0.5
                 V[k].y += (P[k].y - V[k].y) * 0.5

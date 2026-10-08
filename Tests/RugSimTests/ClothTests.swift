@@ -64,6 +64,20 @@ final class ClothTests: XCTestCase {
         XCTAssertLessThan(c.pos.map(\.z).max()!, 60, "折痕不能往上堆成塔")
     }
 
+    func testFastDragDoesNotFlyAway() {
+        let c = Cloth(placement: place)
+        var target = place.center
+        c.grab(near: target)
+        for _ in 0..<18 { target.x += 50; c.moveGrab(to: target); c.step(dt: 1 / 60) }
+        let atRelease = c.fittedPlacement().center
+        c.release()
+        var maxZ: Float = 0
+        for _ in 0..<300 { c.step(dt: 1 / 60); maxZ = max(maxZ, c.pos.map(\.z).max()!) }
+        XCTAssertLessThan(maxZ, 250, "兩層互推會往鏡頭爆")
+        XCTAssertLessThan(simd_length(c.fittedPlacement().center - atRelease), 200, "放手後不能被甩出去")
+        XCTAssertTrue(c.isSettled)
+    }
+
     func testStepPerformance() {
         let c = Cloth(placement: place)
         c.grab(near: place.point(u: 1, v: 1))

@@ -90,6 +90,8 @@ final class RugView: MTKView {
     // 開發用：`DesktopRug --demo fold|bumps|edit` 跑腳本動作，方便不碰滑鼠截圖驗畫面
     var demo: String?
     private var demoFrame = 0
+    private var demoFrom = SIMD2<Float>(0, 0)
+    private var demoTo = SIMD2<Float>(0, 0)
 
     private func runDemo() {
         guard let demo, let cloth else { return }
@@ -97,13 +99,18 @@ final class RugView: MTKView {
         demoFrame += 1
         switch demo {
         case "fold":
-            let from = p.point(u: 1, v: 1), to = p.point(u: 0.35, v: 0.3)
-            if demoFrame == 30 { cloth.grab(near: from) }
+            if demoFrame == 30 { demoFrom = p.point(u: 1, v: 1); demoTo = p.point(u: 0.35, v: 0.3); cloth.grab(near: demoFrom) }
+            let from = demoFrom, to = demoTo
             if demoFrame > 30 && demoFrame <= 120 {
                 let t = Float(demoFrame - 30) / 90
                 cloth.moveGrab(to: from + (to - from) * t + SIMD2(0, 0))
             }
             if demoFrame == 150 { cloth.release() }
+        case "flick":
+            if demoFrame == 30 { demoFrom = p.point(u: 0.5, v: 0.5); cloth.grab(near: demoFrom) }
+            let from = demoFrom
+            if demoFrame > 30 && demoFrame <= 48 { cloth.moveGrab(to: from + SIMD2(Float(demoFrame - 30) * 25, 0)) }
+            if demoFrame == 48 { cloth.release() }
         case "bumps":
             if demoFrame == 1 {
                 var icons: [SIMD2<Float>] = []
