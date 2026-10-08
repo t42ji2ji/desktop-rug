@@ -37,7 +37,8 @@ fragment float4 rug_fs(RugOut in [[stage_in]], bool front [[front_facing]],
     constexpr sampler smp(filter::linear, mip_filter::linear, address::clamp_to_edge, max_anisotropy(8));
     // 法線傾斜放大，凸起和皺褶在繁複花紋上才看得出來
     float3 n = normalize(in.nrm * float3(1.6, 1.6, 1.0));
-    float3 c = tex.sample(smp, in.uv).rgb;
+    // 地毯 uv 以左下為原點、圖片以左上為原點，v 要翻過來
+    float3 c = tex.sample(smp, float2(in.uv.x, 1.0 - in.uv.y)).rgb;
     if (!front) {
         // 翻過來看到的是地毯背面：同一個圖案，比較灰暗
         n = -n;
