@@ -71,7 +71,7 @@ public struct HeightField {
         var f = HeightField(origin: origin, size: size)
         // 圖示 + 下方檔名大約是 1.3 倍寬、1.7 倍高，中心往下移一點
         let box = SIMD2(iconSize * 1.3, iconSize * 1.7)
-        for c in centers { f.addBox(center: c - SIMD2(0, iconSize * 0.3), size: box, height: 7) }
+        for c in centers { f.addBox(center: c - SIMD2(0, iconSize * 0.3), size: box, height: 10) }
         f.clamp(max: 60)
         f.blur(radius: max(1, Int(iconSize * 0.25 / f.cell)))
         return f

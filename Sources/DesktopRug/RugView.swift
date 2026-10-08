@@ -86,12 +86,47 @@ final class RugView: MTKView {
         timer = t
     }
 
+    // 開發用：`DesktopRug --demo fold|bumps|edit` 跑腳本動作，方便不碰滑鼠截圖驗畫面
+    var demo: String?
+    private var demoFrame = 0
+
+    private func runDemo() {
+        guard let demo, let cloth else { return }
+        let p = cloth.fittedPlacement()
+        demoFrame += 1
+        switch demo {
+        case "fold":
+            let from = p.point(u: 1, v: 1), to = p.point(u: 0.35, v: 0.3)
+            if demoFrame == 30 { cloth.grab(near: from) }
+            if demoFrame > 30 && demoFrame <= 120 {
+                let t = Float(demoFrame - 30) / 90
+                cloth.moveGrab(to: from + (to - from) * t + SIMD2(0, 0))
+            }
+            if demoFrame == 150 { cloth.release() }
+        case "bumps":
+            if demoFrame == 1 {
+                var icons: [SIMD2<Float>] = []
+                for k in 0..<4 { icons.append(p.point(u: 0.3, v: 0.6) + SIMD2(Float(k) * 4, 0)) }
+                icons.append(p.point(u: 0.7, v: 0.4))
+                icons += [p.point(u: 0.55, v: 0.7), p.point(u: 0.62, v: 0.7)]
+                setFloor(HeightField.fromIcons(icons, iconSize: 64, origin: .zero, size: viewSize))
+            }
+        case "edit":
+            editMode = true
+            angleLabel = "11°"; activeCorner = 2
+            if demoFrame == 1 { cloth.flatten(to: RugPlacement(center: p.center, angle: 11 * .pi / 180, size: p.size)) }
+            needsDraw = true
+        default: break
+        }
+    }
+
     private func tick() {
         guard let window else { return }
+        runDemo()
         let m = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let mouse = SIMD2(Float(m.x), Float(m.y))
         let option = NSEvent.modifierFlags.contains(.option)
-        if drag == nil, option != editMode {
+        if drag == nil, demo != "edit", option != editMode {
             editMode = option
             needsDraw = true
         }
@@ -102,7 +137,7 @@ final class RugView: MTKView {
         else { hit = clothHit(mouse) }
         if window.ignoresMouseEvents == hit { window.ignoresMouseEvents = !hit }
 
-        if let cloth, !cloth.isSettled || drag != nil {
+        if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
             cloth.step(dt: 1.0 / 60)
             updateProjection()
             needsDraw = true

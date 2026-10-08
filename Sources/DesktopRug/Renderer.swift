@@ -35,7 +35,8 @@ vertex RugOut rug_vs(uint vid [[vertex_id]], const device V* v [[buffer(0)]], co
 fragment float4 rug_fs(RugOut in [[stage_in]], bool front [[front_facing]],
                        texture2d<float> tex [[texture(0)]], constant U& u [[buffer(1)]]) {
     constexpr sampler smp(filter::linear, mip_filter::linear, address::clamp_to_edge, max_anisotropy(8));
-    float3 n = normalize(in.nrm);
+    // 法線傾斜放大，凸起和皺褶在繁複花紋上才看得出來
+    float3 n = normalize(in.nrm * float3(1.6, 1.6, 1.0));
     float3 c = tex.sample(smp, in.uv).rgb;
     if (!front) {
         // 翻過來看到的是地毯背面：同一個圖案，比較灰暗
@@ -43,13 +44,13 @@ fragment float4 rug_fs(RugOut in [[stage_in]], bool front [[front_facing]],
         float g = dot(c, float3(0.3, 0.59, 0.11));
         c = mix(c, float3(g), 0.35) * 0.72;
     }
-    float3 L = normalize(float3(-0.35, 0.45, 1.0));
+    float3 L = normalize(float3(-0.5, 0.6, 0.65));
     float shade = 0.28 + 0.72 * max(dot(n, L), 0.0) / L.z;
     // 邊緣包邊稍暗，看起來有厚度
     float2 d = min(in.uv, 1.0 - in.uv) * u.rugSize;
     float edge = smoothstep(0.6, 2.2, min(d.x, d.y));
     c *= mix(0.55, 1.0, edge);
-    return float4(c * min(shade, 1.25), 1.0);
+    return float4(c * min(shade, 1.3), 1.0);
 }
 
 struct ShOut { float4 position [[position]]; };
@@ -205,6 +206,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         e.setRenderPipelineState(rugPipe)
         e.setDepthStencilState(depth)
         e.setCullMode(.none)
+        e.setFrontFacing(.counterClockwise)
         e.setVertexBuffer(vbuf, offset: 0, index: 0)
         e.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
         e.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)

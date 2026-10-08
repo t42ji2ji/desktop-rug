@@ -60,6 +60,8 @@ final class ClothTests: XCTestCase {
         XCTAssertGreaterThan(tip.z, c.params.thickness * 0.8, "折過來的角要躺在下層上面")
         XCTAssertLessThan(tip.z, 20)
         XCTAssertLessThan(simd_length(SIMD2(tip.x, tip.y) - to), 120)
+        XCTAssertTrue(c.isSettled, "折好放開後要能休眠，不然會一直吃 CPU")
+        XCTAssertLessThan(c.pos.map(\.z).max()!, 60, "折痕不能往上堆成塔")
     }
 
     func testStepPerformance() {

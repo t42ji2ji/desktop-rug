@@ -46,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        let screen = NSScreen.main!
+        // 主顯示器（有選單列、Finder 桌面座標的原點）
+        let screen = NSScreen.screens[0]
         window = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                          backing: .buffered, defer: false)
         // 桌面圖示上面一層、一般視窗下面
@@ -73,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         applyPattern()
         if !defaults.bool(forKey: "hidden") { view.show(savedPlacement() ?? defaultPlacement()) }
+        if let i = CommandLine.arguments.firstIndex(of: "--demo"), i + 1 < CommandLine.arguments.count {
+            view.demo = CommandLine.arguments[i + 1]
+        }
         view.start()
 
         setupStatusItem()
@@ -81,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            guard let self, let s = NSScreen.main else { return }
+            guard let self, let s = NSScreen.screens.first else { return }
             self.window.setFrame(s.frame, display: true)
             self.lastIcons = nil
         }
@@ -188,7 +192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func pollIcons() {
         // Finder 關掉桌面圖示時不用問（也不會跳自動化權限）
-        if UserDefaults(suiteName: "com.apple.finder")?.object(forKey: "CreateDesktop") as? Bool == false {
+        guard view.demo == nil else { return }
+        let finder = UserDefaults(suiteName: "com.apple.finder")
+        if finder?.object(forKey: "CreateDesktop") != nil && finder?.bool(forKey: "CreateDesktop") == false {
             if lastIcons != nil { lastIcons = nil; view.setFloor(nil) }
             return
         }
