@@ -28,7 +28,8 @@ public struct ClothParams {
     public var substeps = 6
     public var drag: Float = 0.985          // 每個 substep 的速度保留
     public var floorFriction: Float = 0.18
-    public var iterations = 3  // 貼地時每個 substep 吃掉的水平速度比例
+    public var iterations = 3
+    public var staticFriction: Float = 0.4 // 每個 substep 小於這個位移就黏住  // 貼地時每個 substep 吃掉的水平速度比例
     public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
     public var shear: Float = 0.7
@@ -175,11 +176,10 @@ public final class Cloth {
             _ = g
         }
         let start = pos
-        let support = layerCollision ? findSupports(LayerIndex(cloth: self)) : []
         for s in 0..<n {
             integrate(h)
             for _ in 0..<params.iterations { solveConstraints() }
-            if layerCollision { collideLayers(support) }
+            if layerCollision { collideSelf() }
             collideFloor()
         }
         var m: Float = 0
@@ -251,61 +251,61 @@ public final class Cloth {
         }
     }
 
-    /// 布自己疊起來時，上層要停在下層上面。地毯幾乎都是由上往下看、層層往上疊，所以只處理垂直方向：
-    /// frame 開始時記下每個點正壓在哪片（非鄰近的）三角形上方，這個 frame 內就維持「在它上面 thickness」。
-    /// 只維持既有的上下關係、不重新判斷，兩層才不會互相往上頂。
-    private func findSupports(_ L: LayerIndex) -> [Int32] {
+    /// 布自己疊起來時互相推開：不相鄰的兩個質點距離小於 2r 就各退一半。
+    /// 對稱的推法不會越疊越高；r 取接近格距的一半，上層才不會從下層格子間漏下去。
+    private func collideSelf() {
+        let r = max(params.thickness, restSize.x / Float(nx - 1) * 0.5)
+        let cell = 2 * r
         let nx = self.nx
-        let t = params.thickness
-        var out = [Int32](repeating: -1, count: pos.count)
-        indices.withUnsafeBufferPointer { I in
-        L.items.withUnsafeBufferPointer { items in
-        pos.withUnsafeBufferPointer { P in
-            for k in 0..<P.count {
-                let p = P[k]
-                let ki = k % nx, kj = k / nx
-                var best: Float = -.infinity
-                for r in L.range(near: p.x, p.y) {
-                    let tri = Int(items[r])
-                    let a = Int(I[tri * 3]), b = Int(I[tri * 3 + 1]), c = Int(I[tri * 3 + 2])
-                    if abs(a % nx - ki) <= 2 && abs(a / nx - kj) <= 2 { continue }
-                    guard let z = Cloth.heightOnTriangle(SIMD2(p.x, p.y), P[a], P[b], P[c]) else { continue }
-                    // 只認貼近的下層；離很遠的這個 frame 內碰不到
-                    if z < p.z && z > p.z - 3 * t && z > best { best = z; out[k] = Int32(tri) }
-                }
-            }
-        } } }
-        // 互相支撐（A 踩在 B 區上、B 又踩在 A 區上）代表兩片已經穿插，推了只會一起往上爆，兩邊都不推
-        var cleaned = out
-        for k in out.indices where out[k] >= 0 {
-            let other = Int(indices[Int(out[k]) * 3])
-            for o in [other, other + 1, other + nx] where o < out.count && out[o] >= 0 {
-                let back = Int(indices[Int(out[o]) * 3])
-                if abs(back % nx - k % nx) <= 3 && abs(back / nx - k / nx) <= 3 { cleaned[k] = -1; cleaned[o] = -1 }
-            }
-        }
-        return cleaned
-    }
-
-    private func collideLayers(_ support: [Int32]) {
-        let t = params.thickness
         let isPinned = pinned
-        indices.withUnsafeBufferPointer { I in
-        prev.withUnsafeMutableBufferPointer { V in
+        let n = pos.count
+        var lo = SIMD2<Float>(.infinity, .infinity)
+        for p in pos { lo = simd_min(lo, SIMD2(p.x, p.y)) }
+        var keys = [Int](repeating: 0, count: n)
+        var maxI = 0, maxJ = 0
+        for k in 0..<n {
+            let i = Int((pos[k].x - lo.x) / cell), j = Int((pos[k].y - lo.y) / cell)
+            maxI = max(maxI, i); maxJ = max(maxJ, j)
+            keys[k] = j << 16 | i
+        }
+        let gw = maxI + 1, gh = maxJ + 1
+        var start = [Int32](repeating: 0, count: gw * gh + 1)
+        for k in 0..<n { start[(keys[k] >> 16) * gw + (keys[k] & 0xffff) + 1] += 1 }
+        for c in 1..<start.count { start[c] += start[c - 1] }
+        var items = [Int32](repeating: 0, count: n)
+        var fill = start
+        for k in 0..<n { let c = (keys[k] >> 16) * gw + (keys[k] & 0xffff); items[Int(fill[c])] = Int32(k); fill[c] += 1 }
+
+        let minD = 2 * r
         pos.withUnsafeMutableBufferPointer { P in
-            for k in 0..<P.count where support[k] >= 0 && (isPinned.isEmpty || !isPinned[k]) {
-                let tri = Int(support[k])
-                let a = Int(I[tri * 3]), b = Int(I[tri * 3 + 1]), c = Int(I[tri * 3 + 2])
-                guard let z = Cloth.heightOnTriangle(SIMD2(P[k].x, P[k].y), P[a], P[b], P[c], margin: 0.25),
-                      P[k].z < z + t else { continue }
-                // 每步往上推有上限，兩層交錯時才不會互相越推越高
-                P[k].z = min(z + t, P[k].z + 0.5 * t)
-                // 層間摩擦，垂直速度歸零（毯子很重，不彈）
-                V[k].x += (P[k].x - V[k].x) * 0.5
-                V[k].y += (P[k].y - V[k].y) * 0.5
-                V[k].z = P[k].z
+        prev.withUnsafeMutableBufferPointer { V in
+            for k in 0..<n {
+                let ci = keys[k] & 0xffff, cj = keys[k] >> 16
+                let ki = k % nx, kj = k / nx
+                for j in max(0, cj - 1)...min(gh - 1, cj + 1) { for i in max(0, ci - 1)...min(gw - 1, ci + 1) {
+                    let c = j * gw + i
+                    for e in Int(start[c])..<Int(start[c + 1]) {
+                        let o = Int(items[e])
+                        if o <= k { continue }
+                        if abs(o % nx - ki) <= 2 && abs(o / nx - kj) <= 2 { continue }
+                        let d = P[o] - P[k]
+                        let len = simd_length(d)
+                        if len >= minD || len < 1e-5 { continue }
+                        let wk: Float = !isPinned.isEmpty && isPinned[k] ? 0 : 1
+                        let wo: Float = !isPinned.isEmpty && isPinned[o] ? 0 : 1
+                        if wk + wo == 0 { continue }
+                        let corr = d * ((minD - len) / len / (wk + wo))
+                        P[k] -= corr * wk
+                        P[o] += corr * wo
+                        // 層間摩擦：兩點的水平相對速度互相拉近
+                        let vk = P[k] - V[k], vo = P[o] - V[o]
+                        let rel = (vo - vk) * 0.25
+                        V[k] -= SIMD3(rel.x, rel.y, 0) * wk
+                        V[o] += SIMD3(rel.x, rel.y, 0) * wo
+                    }
+                } }
             }
-        } } }
+        } }
     }
 
     static func heightOnTriangle(_ q: SIMD2<Float>, _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>,
@@ -352,58 +352,5 @@ public final class Cloth {
             ax += SIMD2(b.x - a.x, b.y - a.y)
         }
         return RugPlacement(center: c, angle: atan2(ax.y, ax.x), size: restSize)
-    }
-
-    func trianglePositions(_ tri: Int) -> (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>) {
-        (pos[Int(indices[tri * 3])], pos[Int(indices[tri * 3 + 1])], pos[Int(indices[tri * 3 + 2])])
-    }
-}
-
-/// 三角形的 xy 格子索引（counting sort 成扁平陣列），每個 frame 建一次。
-struct LayerIndex {
-    let cell: Float
-    let ox: Float, oy: Float
-    let gw: Int, gh: Int
-    var start: [Int32]
-    var items: [Int32]
-
-    init(cloth: Cloth) {
-        cell = max(cloth.restSize.x / Float(cloth.nx - 1), 4) * 2
-        let P = cloth.pos
-        var lo = SIMD2<Float>(.infinity, .infinity), hi = -lo
-        for p in P { lo = simd_min(lo, SIMD2(p.x, p.y)); hi = simd_max(hi, SIMD2(p.x, p.y)) }
-        ox = lo.x; oy = lo.y
-        gw = Int((hi.x - lo.x) / cell) + 1; gh = Int((hi.y - lo.y) / cell) + 1
-        let triCount = cloth.indices.count / 3
-        var ranges = [(Int32, Int32, Int32, Int32)](repeating: (0, 0, 0, 0), count: triCount)
-        var count = [Int32](repeating: 0, count: gw * gh + 1)
-        for t in 0..<triCount {
-            let (a, b, c) = cloth.trianglePositions(t)
-            let i0 = Int32((min(a.x, b.x, c.x) - ox) / cell), i1 = Int32((max(a.x, b.x, c.x) - ox) / cell)
-            let j0 = Int32((min(a.y, b.y, c.y) - oy) / cell), j1 = Int32((max(a.y, b.y, c.y) - oy) / cell)
-            ranges[t] = (i0, i1, j0, j1)
-            for j in j0...j1 { for i in i0...i1 { count[Int(j) * gw + Int(i) + 1] += 1 } }
-        }
-        for k in 1..<count.count { count[k] += count[k - 1] }
-        start = count
-        items = [Int32](repeating: 0, count: Int(count[count.count - 1]))
-        var fill = count
-        for t in 0..<triCount {
-            let (i0, i1, j0, j1) = ranges[t]
-            for j in j0...j1 { for i in i0...i1 {
-                let k = Int(j) * gw + Int(i)
-                items[Int(fill[k])] = Int32(t); fill[k] += 1
-            } }
-        }
-    }
-
-    /// 回傳 items 裡的範圍；格子外回空範圍。
-    @inline(__always) func range(near x: Float, _ y: Float) -> Range<Int> {
-        let fx = (x - ox) / cell, fy = (y - oy) / cell
-        if fx < 0 || fy < 0 { return 0..<0 }
-        let i = Int(fx), j = Int(fy)
-        if i >= gw || j >= gh { return 0..<0 }
-        let k = j * gw + i
-        return Int(start[k])..<Int(start[k + 1])
     }
 }

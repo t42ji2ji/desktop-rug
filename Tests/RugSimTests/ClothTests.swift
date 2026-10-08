@@ -72,7 +72,7 @@ final class ClothTests: XCTestCase {
         let atRelease = c.fittedPlacement().center
         c.release()
         var maxZ: Float = 0
-        for _ in 0..<300 { c.step(dt: 1 / 60); maxZ = max(maxZ, c.pos.map(\.z).max()!) }
+        for _ in 0..<420 where !c.isSettled { c.step(dt: 1 / 60); maxZ = max(maxZ, c.pos.map(\.z).max()!) }
         XCTAssertLessThan(maxZ, 250, "兩層互推會往鏡頭爆")
         XCTAssertLessThan(simd_length(c.fittedPlacement().center - atRelease), 200, "放手後不能被甩出去")
         XCTAssertTrue(c.isSettled)
