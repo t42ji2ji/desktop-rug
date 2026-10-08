@@ -19,6 +19,7 @@ final class RugView: MTKView {
     /// 花色選單開著時（選單是 modal），點選單不算「點外面」
     var holdEdit = false
     var onChange: (() -> Void)?   // 擺法變了，要存檔
+    var tuning = Tuning.load()
 
     enum Drag {
         case grab
@@ -54,8 +55,10 @@ final class RugView: MTKView {
     // MARK: 地毯
 
     func show(_ placement: RugPlacement) {
-        let c = Cloth(placement: placement)
+        let c = Cloth(placement: placement, columns: Int(tuning.columns))
+        c.setParams(tuning.params)
         c.floor = floorField
+        renderer.sideThickness = tuning.sideThickness
         cloth = c
         renderer.cloth = c
         updateProjection()
@@ -106,6 +109,20 @@ final class RugView: MTKView {
         cloth = nil
         renderer.cloth = nil
         drag = nil
+        needsDraw = true
+    }
+
+    /// 面板改了參數。rebuild = 格子數變了，要整張重建。
+    func apply(_ t: Tuning, rebuild: Bool) {
+        tuning = t
+        renderer.sideThickness = t.sideThickness
+        if rebuild, let cloth {
+            var p = cloth.fittedPlacement()
+            p.angle = 0
+            show(p)
+        } else {
+            cloth?.setParams(t.params)
+        }
         needsDraw = true
     }
 

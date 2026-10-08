@@ -102,6 +102,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     /// 每次畫之前由 controller 給目前的布（nil = 地毯收起來了）
     var cloth: Cloth?
     private var mesh: RenderMesh?
+    var sideThickness: Float = 6
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -173,7 +174,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
 
         if mesh == nil || meshSource !== cloth { mesh = RenderMesh(cloth: cloth); meshSource = cloth }
-        else { mesh!.update(from: cloth) }
+        mesh!.thickness = sideThickness
+        mesh!.update(from: cloth)
         let m = mesh!
         var verts = [Vertex](); verts.reserveCapacity(m.indices.count + m.side.count)
         for i in m.indices {

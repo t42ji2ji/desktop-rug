@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let defaults = UserDefaults.standard
     let iconQueue = DispatchQueue(label: "desktop-icons")
     var lastIcons: DesktopIcons.Snapshot?
+    var tuningPanel: TuningPanel?
 
     var patternID: String {
         get { defaults.string(forKey: "pattern") ?? patterns.first?.id ?? "" }
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             view.demo = CommandLine.arguments[i + 1]
         }
         view.start()
+        if view.demo == "tuning" { showTuning() }
 
         setupStatusItem()
         pollIcons()
@@ -161,6 +163,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         save()
     }
 
+    @objc func showTuning() {
+        if tuningPanel == nil {
+            let p = TuningPanel(tuning: view.tuning)
+            p.onChange = { [weak self] t, rebuild in self?.view.apply(t, rebuild: rebuild) }
+            p.center()
+            tuningPanel = p
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        tuningPanel?.makeKeyAndOrderFront(nil)
+    }
+
     // MARK: 選單列
 
     func setupStatusItem() {
@@ -183,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(withTitle: "收起地毯", action: #selector(hideRug), keyEquivalent: "").target = self
         }
         menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "調整參數…", action: #selector(showTuning), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、縮放、換花色", action: nil, keyEquivalent: "")
         hint.isEnabled = false

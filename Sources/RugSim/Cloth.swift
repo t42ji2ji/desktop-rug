@@ -27,13 +27,14 @@ public struct ClothParams {
     public var gravity: Float = 4200
     public var substeps = 6
     public var drag: Float = 0.985          // 每個 substep 的速度保留
-    public var floorFriction: Float = 0.18
+    public var floorFriction: Float = 0.18 // 貼地時每個 substep 吃掉的水平速度比例
+    public var moveRigidity: Float = 0.35  // 抓中間拖（移動）時，每個 substep 把整張拉回原形的比例
+    public var dragFriction: Float = 0.04  // 抓中間拖時的地板摩擦（地毯在木地板上順順滑過去）
     public var iterations = 3
     public var timeScale: Float = 1.2      // 整體動作快一點
     public var collisionScale: Float = 0.45// 互推球半徑 = 格距 × 這個
     public var lowerShare: Float = 1       // 兩層互推時下層退多少（上層退 1）
     public var layerFriction: Float = 0.5  // 兩層接觸時水平相對速度吃掉的比例（1 = 黏住一起動）
-    public var staticFriction: Float = 0.4 // 每個 substep 小於這個位移就黏住  // 貼地時每個 substep 吃掉的水平速度比例
     public var thickness: Float = 5       // 兩層布疊起來的間距
     public var stretch: Float = 1.0
     public var shear: Float = 0.7
@@ -55,7 +56,7 @@ public final class Cloth {
     private var constraints: [Constraint] = []
     public let uv: [SIMD2<Float>]
     public let indices: [UInt32]
-    public var params = ClothParams()
+    public private(set) var params = ClothParams()
     public private(set) var restSize: SIMD2<Float>
 
     /// 桌面高度（圖示頂出來的凸起）。nil = 平的。
@@ -71,6 +72,8 @@ public final class Cloth {
     public private(set) var lastMotion: Float = .infinity
     /// 連續幾個 frame 只剩微小晃動。夠久就當作靜摩擦把它定住（休眠）。
     private var calmFrames = 0
+    /// 0 = 抓邊角（要掀、要折），1 = 抓中間（只是要移動）
+    public private(set) var grabRigidity: Float = 0
 
     public init(placement: RugPlacement, columns: Int = 32) {
         let aspect = placement.size.y / placement.size.x
@@ -140,6 +143,9 @@ public final class Cloth {
         guard best >= 0 else { return }
         grabbed = best
         calmFrames = 0
+        let d = min(uv[best].x, 1 - uv[best].x, uv[best].y, 1 - uv[best].y)
+        let e = min(max((d - 0.08) / 0.17, 0), 1)
+        grabRigidity = e * e * (3 - 2 * e)
         let spacing = restSize.x / Float(nx - 1)
         let c = SIMD2(pos[best].x, pos[best].y)
         let bi = best % nx, bj = best / nx
@@ -164,6 +170,13 @@ public final class Cloth {
         pinned = []
         // 重地毯放手不會被甩出去：保留四成速度
         for k in pos.indices { prev[k] = pos[k] - (pos[k] - prev[k]) * 0.4 }
+    }
+
+    /// 換手感參數。限制的強度是建立時寫進去的，所以要重建。
+    public func setParams(_ p: ClothParams) {
+        params = p
+        buildConstraints()
+        wake()
     }
 
     /// 外部條件變了（例如桌面凸起），讓模擬再跑起來。
@@ -192,6 +205,7 @@ public final class Cloth {
         for s in 0..<n {
             integrate(h)
             for _ in 0..<params.iterations { solveConstraints() }
+            if grabbed != nil && grabRigidity > 0 { shapeMatch(params.moveRigidity * grabRigidity) }
             if layerCollision { collideSelf() }
             collideFloor()
         }
@@ -208,18 +222,41 @@ public final class Cloth {
     }
 
     /// 地毯整體轉了多少（弧度）：目前形狀對攤平形狀的最佳旋轉（2D Kabsch），折起來的角影響不大。
-    public func tilt() -> Float {
+    public func tilt() -> Float { rigidFit().angle }
+
+    /// 目前形狀對攤平形狀的最佳剛體擺法（xy 中心、旋轉角）。
+    private func rigidFit() -> (center: SIMD2<Float>, angle: Float) {
         var c = SIMD2<Float>(0, 0)
         for p in pos { c += SIMD2(p.x, p.y) }
         c /= Float(pos.count)
         var sc: Float = 0, cc: Float = 0
         for k in pos.indices {
-            let r = SIMD2((uv[k].x - 0.5) * restSize.x, (uv[k].y - 0.5) * restSize.y)
+            let r = restLocal(k)
             let q = SIMD2(pos[k].x, pos[k].y) - c
             cc += r.x * q.x + r.y * q.y
             sc += r.x * q.y - r.y * q.x
         }
-        return atan2(sc, cc)
+        return (c, atan2(sc, cc))
+    }
+
+    @inline(__always) private func restLocal(_ k: Int) -> SIMD2<Float> {
+        SIMD2((uv[k].x - 0.5) * restSize.x, (uv[k].y - 0.5) * restSize.y)
+    }
+
+    /// 形狀匹配：把每個點的 xy 往「整張剛體移過去」的位置拉。抓中間拖時用，整張才會一起走、不會擠皺。
+    private func shapeMatch(_ alpha: Float) {
+        let (c, a) = rigidFit()
+        let cs = cos(a), sn = sin(a)
+        let isPinned = pinned
+        for k in pos.indices where isPinned.isEmpty || !isPinned[k] {
+            let r = restLocal(k)
+            let goal = c + SIMD2(r.x * cs - r.y * sn, r.x * sn + r.y * cs)
+            pos[k].x += (goal.x - pos[k].x) * alpha
+            pos[k].y += (goal.y - pos[k].y) * alpha
+            // 離手遠的地方也往地面壓，拖著走時只有手邊微微隆起
+            let f = floorHeight(goal)
+            if pos[k].z > f { pos[k].z += (f - pos[k].z) * alpha * 0.5 }
+        }
     }
 
     /// 放手後整張（連折角一起）剛體轉回正向，每個 frame 轉回一部分。
@@ -283,7 +320,8 @@ public final class Cloth {
     }
 
     private func collideFloor() {
-        let mu = params.floorFriction
+        let mu = grabbed == nil ? params.floorFriction
+            : params.floorFriction + (params.dragFriction - params.floorFriction) * grabRigidity
         let isPinned = pinned
         for k in pos.indices where isPinned.isEmpty || !isPinned[k] {
             let f = floorHeight(SIMD2(pos[k].x, pos[k].y))

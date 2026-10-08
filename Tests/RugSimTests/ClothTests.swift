@@ -78,6 +78,24 @@ final class ClothTests: XCTestCase {
         XCTAssertTrue(c.isSettled)
     }
 
+    /// 抓中間拖＝只是要移動：遠離手的地方不該拱起皺褶，整張要跟著走
+    func testDragFromMiddleMovesWithoutWrinkles() {
+        let c = Cloth(placement: place)
+        var target = place.center
+        c.grab(near: target)
+        var worst: Float = 0
+        for _ in 0..<40 {
+            target += SIMD2(15, 6)          // 約 970 pt/s
+            c.moveGrab(to: target)
+            c.step(dt: 1 / 60)
+            let g = c.pos[c.grabbed!]
+            for p in c.pos where simd_length(SIMD2(p.x - g.x, p.y - g.y)) > 150 { worst = max(worst, p.z) }
+        }
+        print("MIDDLE-DRAG worst far z", worst, "moved", simd_length(c.fittedPlacement().center - place.center))
+        XCTAssertLessThan(worst, 12, "離手 150pt 以外不該拱起")
+        XCTAssertGreaterThan(simd_length(c.fittedPlacement().center - place.center), 500, "整張要跟著走")
+    }
+
     func testStepPerformance() {
         let c = Cloth(placement: place)
         c.grab(near: place.point(u: 1, v: 1))
