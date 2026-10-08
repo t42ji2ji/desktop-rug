@@ -6,6 +6,7 @@ struct Tuning {
     var params = ClothParams()
     var columns: Float = 32
     var sideThickness: Float = 6
+    var shadowAlpha: Float = 0.22
 
     struct Knob {
         let key: String
@@ -26,6 +27,7 @@ struct Tuning {
         Knob(key: "collisionScale", title: "疊層間距", range: 0.3...0.8, path: \.params.collisionScale),
         Knob(key: "columns", title: "格子數（橫向）", range: 16...56, path: \.columns),
         Knob(key: "sideThickness", title: "邊緣厚度", range: 0...20, path: \.sideThickness),
+        Knob(key: "shadowAlpha", title: "陰影濃度", range: 0...0.6, path: \.shadowAlpha),
     ]
 
     static func load() -> Tuning {

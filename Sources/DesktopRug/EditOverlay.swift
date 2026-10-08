@@ -10,6 +10,7 @@ final class EditOverlay: NSView {
     let trashButton = NSButton()
     let addButton = NSButton()
     var onPick: ((String) -> Void)?
+    var onDelete: ((String) -> Void)?
     private var swatches: [(id: String, button: NSButton)] = []
 
     static let swatchSize = NSSize(width: 54, height: 36)
@@ -47,7 +48,7 @@ final class EditOverlay: NSView {
     }
 
     /// 重建花色縮圖列。
-    func setPatterns(_ items: [(id: String, url: URL)], selected: String) {
+    func setPatterns(_ items: [(id: String, url: URL, removable: Bool)], selected: String) {
         for v in row.arrangedSubviews { row.removeArrangedSubview(v); v.removeFromSuperview() }
         swatches = []
         for item in items {
@@ -66,6 +67,25 @@ final class EditOverlay: NSView {
             b.heightAnchor.constraint(equalToConstant: Self.swatchSize.height).isActive = true
             swatches.append((item.id, b))
             row.addArrangedSubview(b)
+            if item.removable {
+                // 自己加的圖右上角有 ×
+                let x = NSButton()
+                x.isBordered = false
+                x.imagePosition = .imageOnly
+                x.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "刪除這個花色")
+                x.contentTintColor = .white
+                x.toolTip = "刪除這個花色"
+                x.target = self
+                x.action = #selector(deleted(_:))
+                x.identifier = NSUserInterfaceItemIdentifier(item.id)
+                x.translatesAutoresizingMaskIntoConstraints = false
+                b.addSubview(x)
+                NSLayoutConstraint.activate([
+                    x.topAnchor.constraint(equalTo: b.topAnchor, constant: 1),
+                    x.trailingAnchor.constraint(equalTo: b.trailingAnchor, constant: -1),
+                    x.widthAnchor.constraint(equalToConstant: 14), x.heightAnchor.constraint(equalToConstant: 14),
+                ])
+            }
         }
         row.addArrangedSubview(addButton)
         let divider = NSBox()
@@ -85,6 +105,10 @@ final class EditOverlay: NSView {
             s.button.layer?.borderWidth = s.id == id ? 2.5 : 0
             s.button.layer?.borderColor = NSColor.controlAccentColor.cgColor
         }
+    }
+
+    @objc private func deleted(_ b: NSButton) {
+        if let id = b.identifier?.rawValue { onDelete?(id) }
     }
 
     @objc private func picked(_ b: NSButton) {

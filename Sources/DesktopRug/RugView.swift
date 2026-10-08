@@ -59,6 +59,7 @@ final class RugView: MTKView {
         c.setParams(tuning.params)
         c.floor = floorField
         renderer.sideThickness = tuning.sideThickness
+        renderer.shadowAlpha = tuning.shadowAlpha
         cloth = c
         renderer.cloth = c
         updateProjection()
@@ -116,6 +117,7 @@ final class RugView: MTKView {
     func apply(_ t: Tuning, rebuild: Bool) {
         tuning = t
         renderer.sideThickness = t.sideThickness
+        renderer.shadowAlpha = t.shadowAlpha
         if rebuild, let cloth {
             var p = cloth.fittedPlacement()
             p.angle = 0

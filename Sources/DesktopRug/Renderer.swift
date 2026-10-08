@@ -12,7 +12,7 @@ private let shaderSource = """
 using namespace metal;
 
 struct V { float3 pos; float3 nrm; float2 uv; };
-struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; };
+struct U { float2 view; float cam; float2 rugSize; float2 shadowOffset; float shadowLift; float shadowAlpha; };
 
 struct RugOut { float4 position [[position]]; float3 nrm; float2 uv; float h; };
 
@@ -74,9 +74,9 @@ vertex Full full_vs(uint vid [[vertex_id]]) {
     return o;
 }
 
-fragment float4 composite_fs(Full in [[stage_in]], texture2d<float> mask [[texture(0)]]) {
+fragment float4 composite_fs(Full in [[stage_in]], texture2d<float> mask [[texture(0)]], constant U& u [[buffer(1)]]) {
     constexpr sampler smp(filter::linear);
-    float a = mask.sample(smp, in.uv).r * 0.42;
+    float a = mask.sample(smp, in.uv).r * u.shadowAlpha;
     return float4(0, 0, 0, a);   // premultiplied
 }
 """
@@ -84,7 +84,7 @@ fragment float4 composite_fs(Full in [[stage_in]], texture2d<float> mask [[textu
 struct Vertex { var pos: SIMD3<Float>; var nrm: SIMD3<Float>; var uv: SIMD2<Float> }
 struct Uniforms {
     var view: SIMD2<Float>; var cam: Float; var rugSize: SIMD2<Float>
-    var shadowOffset: SIMD2<Float>; var shadowLift: Float
+    var shadowOffset: SIMD2<Float>; var shadowLift: Float; var shadowAlpha: Float
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
@@ -103,6 +103,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     var cloth: Cloth?
     private var mesh: RenderMesh?
     var sideThickness: Float = 6
+    var shadowAlpha: Float = 0.22
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -186,7 +187,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let vbuf = device.makeBuffer(bytes: verts, length: MemoryLayout<Vertex>.stride * verts.count)!
         let b = view.bounds.size
         var u = Uniforms(view: SIMD2(Float(b.width), Float(b.height)), cam: cameraHeight,
-                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1)
+                         rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha)
 
         // 1. 影子遮罩（半解析度）→ 模糊
         ensureMasks(view.drawableSize)
@@ -208,6 +209,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let e = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
         e.setRenderPipelineState(compPipe)
         e.setFragmentTexture(maskB, index: 0)
+        e.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         e.setRenderPipelineState(rugPipe)

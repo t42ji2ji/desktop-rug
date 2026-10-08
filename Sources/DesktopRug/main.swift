@@ -8,6 +8,7 @@ struct Pattern {
     let id: String
     let url: URL
     var title: String { Pattern.title(for: id) }
+    var isUserAdded: Bool { url.deletingLastPathComponent().standardizedFileURL == Pattern.userDir.standardizedFileURL }
 
     static let titles = [
         "persian-red": "波斯紅", "blue-tabriz": "大不里士藍", "beni-ourain": "摩洛哥白",
@@ -93,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         view.onChange = { [weak self] in self?.save() }
         view.overlay.onPick = { [weak self] id in self?.patternID = id; self?.applyPattern() }
+        view.overlay.onDelete = { [weak self] id in self?.deletePattern(id) }
         view.overlay.addButton.target = self
         view.overlay.addButton.action = #selector(addLocalImage)
         refreshSwatches()
@@ -161,7 +163,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func refreshSwatches() {
-        view.overlay.setPatterns(patterns.map { ($0.id, $0.url) }, selected: patternID)
+        view.overlay.setPatterns(patterns.map { ($0.id, $0.url, $0.isUserAdded) }, selected: patternID)
+    }
+
+    func deletePattern(_ id: String) {
+        guard let p = patterns.first(where: { $0.id == id }), p.isUserAdded else { return }
+        try? FileManager.default.removeItem(at: p.url)
+        patterns = Pattern.all()
+        if patternID == id { patternID = Pattern.defaultID; applyPattern() }
+        refreshSwatches()
     }
 
     @objc func addLocalImage() {
