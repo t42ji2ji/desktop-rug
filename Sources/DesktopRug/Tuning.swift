@@ -8,7 +8,7 @@ struct Tuning {
     var sideThickness: Float = 6
     var shadowAlpha: Float = 0.22
     var cornerRadius: Float = 16
-    var catLength: Float = 85
+    var catLength: Float = 110
 
     struct Knob {
         let key: String

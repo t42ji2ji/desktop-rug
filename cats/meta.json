@@ -1,0 +1,14 @@
+{
+  "black" : {
+    "bodyLength" : 0.88802083333333337
+  },
+  "british" : {
+    "bodyLength" : 0.8671875
+  },
+  "calico" : {
+    "bodyLength" : 0.8671875
+  },
+  "orange" : {
+    "bodyLength" : 0.859375
+  }
+}
