@@ -133,7 +133,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func showPatternMenu(_ sender: NSButton) {
+        view.holdEdit = true
         patternMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+        view.holdEdit = false
     }
 
     @objc func pickPattern(_ item: NSMenuItem) {
@@ -182,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        let hint = NSMenuItem(title: "按住 ⌥ 可移動、旋轉、縮放", action: nil, keyEquivalent: "")
+        let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、旋轉、縮放", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
         menu.addItem(withTitle: "結束", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

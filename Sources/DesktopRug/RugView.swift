@@ -14,6 +14,10 @@ final class RugView: MTKView {
     private(set) var editMode = false
     private var timer: Timer?
     private var saveWhenSettled = false
+    /// 右鍵進入、不用按著 ⌥ 的編輯模式；點地毯外面或再按右鍵離開
+    private(set) var stickyEdit = false
+    /// 花色選單開著時（選單是 modal），點選單不算「點外面」
+    var holdEdit = false
     var onChange: (() -> Void)?   // 擺法變了，要存檔
 
     enum Drag {
@@ -60,6 +64,7 @@ final class RugView: MTKView {
     }
 
     func hideRug() {
+        stickyEdit = false
         cloth = nil
         renderer.cloth = nil
         drag = nil
@@ -134,8 +139,8 @@ final class RugView: MTKView {
         let m = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let mouse = SIMD2(Float(m.x), Float(m.y))
         let option = NSEvent.modifierFlags.contains(.option)
-        if drag == nil, demo != "edit", option != editMode {
-            editMode = option
+        if drag == nil, demo != "edit", (option || stickyEdit) != editMode {
+            editMode = option || stickyEdit
             needsDraw = true
         }
 
@@ -144,6 +149,9 @@ final class RugView: MTKView {
         else if editMode { hit = editTarget(at: mouse) != nil || overlay.toolbarHit(m) }
         else { hit = clothHit(mouse) }
         if window.ignoresMouseEvents == hit { window.ignoresMouseEvents = !hit }
+        if stickyEdit, !hit, !holdEdit, NSEvent.pressedMouseButtons != 0 {
+            stickyEdit = false
+        }
 
         if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
             cloth.step(dt: 1.0 / 60)
@@ -223,6 +231,13 @@ final class RugView: MTKView {
             drag = .grab
             NSCursor.closedHand.push()
         }
+        needsDraw = true
+    }
+
+    override func rightMouseDown(with e: NSEvent) {
+        let m = convert(e.locationInWindow, from: nil)
+        let q = SIMD2(Float(m.x), Float(m.y))
+        if stickyEdit { stickyEdit = false } else if clothHit(q) { stickyEdit = true }
         needsDraw = true
     }
 
