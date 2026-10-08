@@ -70,6 +70,12 @@ final class RugController: NSObject {
     var onSurfacesChanged: (() -> Void)?   // 螢幕重建了，工具列按鈕要重新接線
     var tuning = Tuning.load()
     private var textureURL: URL?
+    private lazy var catSprites = CatSprites(device: device)
+    /// 住在地毯上的貓（kind = 第幾種花色的貓）
+    private var cats: [(kind: Int, cat: Cat)] = []
+    var catsEnabled = UserDefaults.standard.object(forKey: "cats") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(catsEnabled, forKey: "cats"); needsDraw = true }
+    }
 
     enum Drag {
         case grab
@@ -135,6 +141,7 @@ final class RugController: NSObject {
         c.floor = floorField
         cloth = c
         for s in surfaces { s.renderer.cloth = c }
+        spawnCats(rugSize: placement.size)
         applyLook()
         needsDraw = true
     }
@@ -144,7 +151,10 @@ final class RugController: NSObject {
             s.renderer.sideThickness = tuning.sideThickness
             s.renderer.shadowAlpha = tuning.shadowAlpha
             s.renderer.cornerRadius = tuning.cornerRadius
+            s.renderer.catLength = tuning.catLength
+            s.renderer.catSprites = catSprites
         }
+        for i in cats.indices { cats[i].cat.length = tuning.catLength }
     }
 
     /// 收起動畫：右半翻到左半上、上半往下對折、縮小消失，播完才真的收起。
@@ -183,6 +193,17 @@ final class RugController: NSObject {
         }
         needsDraw = true
         if t >= 1.3 { stow = nil; hideRug(); s.done() }
+    }
+
+    /// 每種貓一隻，散在地毯上
+    private func spawnCats(rugSize: SIMD2<Float>) {
+        guard cats.isEmpty else { return }
+        let n = catSprites.kinds.count
+        cats = (0..<n).map { i in
+            let x = (Float(i) + 0.5) / Float(max(n, 1)) - 0.5
+            let pos = SIMD2(x * rugSize.x * 0.7, (i % 2 == 0 ? 0.15 : -0.15) * rugSize.y)
+            return (i, Cat(pos: pos, heading: Float(i) * 1.7, length: tuning.catLength, seed: UInt64(i + 1) &* 7919))
+        }
     }
 
     func hideRug() {
@@ -306,6 +327,14 @@ final class RugController: NSObject {
             stickyEdit = false
         }
 
+        if catsEnabled, let cloth, stow == nil, !cats.isEmpty {
+            let positions = cats.map(\.cat.pos)
+            for i in cats.indices {
+                let others = positions.enumerated().filter { $0.offset != i }.map(\.element)
+                cats[i].cat.update(dt: 1.0 / 60, rugSize: cloth.restSize, others: others)
+            }
+            needsDraw = true
+        }
         if stow != nil {
             stepStow()
         } else if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
@@ -325,6 +354,7 @@ final class RugController: NSObject {
             for s in surfaces {
                 let cam = s.camera
                 s.renderer.origin = cam.origin
+                s.renderer.cats = catsEnabled && stow == nil ? cats.map { ($0.kind, $0.cat.pose) } : []
                 s.draw()
                 var local = p
                 local?.center -= cam.origin

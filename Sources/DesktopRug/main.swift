@@ -206,6 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         save()
     }
 
+    @objc func toggleCats() { rug.catsEnabled.toggle() }
+
     @objc func showTuning() {
         if tuningPanel == nil {
             let p = TuningPanel(tuning: rug.tuning)
@@ -240,6 +242,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
         menu.addItem(withTitle: "調整參數…", action: #selector(showTuning), keyEquivalent: "").target = self
+        let cats = NSMenuItem(title: "小貓", action: #selector(toggleCats), keyEquivalent: "")
+        cats.target = self
+        cats.state = rug.catsEnabled ? .on : .off
+        menu.addItem(cats)
         menu.addItem(.separator())
         let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、縮放、換花色", action: nil, keyEquivalent: "")
         hint.isEnabled = false

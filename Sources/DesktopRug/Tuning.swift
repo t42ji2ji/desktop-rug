@@ -8,6 +8,7 @@ struct Tuning {
     var sideThickness: Float = 6
     var shadowAlpha: Float = 0.22
     var cornerRadius: Float = 16
+    var catLength: Float = 85
 
     struct Knob {
         let key: String
@@ -30,6 +31,7 @@ struct Tuning {
         Knob(key: "sideThickness", title: "邊緣厚度", range: 0...20, path: \.sideThickness),
         Knob(key: "shadowAlpha", title: "陰影濃度", range: 0...0.6, path: \.shadowAlpha),
         Knob(key: "cornerRadius", title: "圓角", range: 0...80, path: \.cornerRadius),
+        Knob(key: "catLength", title: "貓的大小", range: 40...180, path: \.catLength),
     ]
 
     static func load() -> Tuning {

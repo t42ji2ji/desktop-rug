@@ -82,7 +82,7 @@ public struct RenderMesh {
     }
 
     /// 在細網格上以 uv 雙線性取樣位置和法線。
-    private func sample(_ q: SIMD2<Float>) -> (SIMD3<Float>, SIMD3<Float>) {
+    public func sample(_ q: SIMD2<Float>) -> (SIMD3<Float>, SIMD3<Float>) {
         let fx = min(max(q.x, 0), 1) * Float(nx - 1), fy = min(max(q.y, 0), 1) * Float(ny - 1)
         let i = min(Int(fx), nx - 2), j = min(Int(fy), ny - 2)
         let tx = fx - Float(i), ty = fy - Float(j)

@@ -80,6 +80,22 @@ fragment float shadow_fs(ShOut in [[stage_in]], constant U& u [[buffer(1)]]) {
     return 1.0;
 }
 
+struct CatV { float3 pos; float2 uv; };
+struct CatOut { float4 position [[position]]; float2 uv; };
+
+vertex CatOut cat_vs(uint vid [[vertex_id]], const device CatV* v [[buffer(0)]], constant U& u [[buffer(1)]]) {
+    CatOut o; o.position = project(v[vid].pos, u); o.position.z = 0; o.uv = v[vid].uv;
+    return o;
+}
+
+// shade < 0 = 影子（黑、半透明）；否則照常畫貓
+fragment float4 cat_fs(CatOut in [[stage_in]], texture2d<float> tex [[texture(0)]], constant float& shade [[buffer(2)]]) {
+    constexpr sampler smp(filter::linear, mip_filter::linear, address::clamp_to_edge);
+    float4 c = tex.sample(smp, in.uv);
+    if (shade < 0) return float4(0, 0, 0, c.a * -shade);
+    return float4(c.rgb * c.a, c.a);   // PNG 是直接 alpha，混合要預乘
+}
+
 struct Full { float4 position [[position]]; float2 uv; };
 
 vertex Full full_vs(uint vid [[vertex_id]]) {
@@ -108,6 +124,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let rugPipe: MTLRenderPipelineState
     private let shadowPipe: MTLRenderPipelineState
     private let compPipe: MTLRenderPipelineState
+    private let catPipe: MTLRenderPipelineState
     private let depth: MTLDepthStencilState
     private var maskA: MTLTexture?
     private var maskB: MTLTexture?
@@ -122,6 +139,10 @@ final class Renderer: NSObject, MTKViewDelegate {
     var cornerRadius: Float = 16
     /// 這個螢幕左下角在統一座標裡的位置
     var origin = SIMD2<Float>(0, 0)
+    /// 要畫的貓：哪一種、哪個姿勢。座標是地毯局部座標，在這裡貼到毯面上
+    var cats: [(kind: Int, pose: Cat.Pose)] = []
+    var catSprites: CatSprites?
+    var catLength: Float = 85
     private weak var meshSource: Cloth?
 
     init(view: MTKView) {
@@ -153,6 +174,18 @@ final class Renderer: NSObject, MTKViewDelegate {
         c.colorAttachments[0].sourceAlphaBlendFactor = .one
         c.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         compPipe = try! device.makeRenderPipelineState(descriptor: c)
+
+        let k = MTLRenderPipelineDescriptor()
+        k.vertexFunction = lib.makeFunction(name: "cat_vs")
+        k.fragmentFunction = lib.makeFunction(name: "cat_fs")
+        k.colorAttachments[0].pixelFormat = view.colorPixelFormat
+        k.depthAttachmentPixelFormat = view.depthStencilPixelFormat
+        k.colorAttachments[0].isBlendingEnabled = true
+        k.colorAttachments[0].sourceRGBBlendFactor = .one
+        k.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        k.colorAttachments[0].sourceAlphaBlendFactor = .one
+        k.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        catPipe = try! device.makeRenderPipelineState(descriptor: k)
 
         let d = MTLDepthStencilDescriptor()
         d.depthCompareFunction = .less
@@ -242,9 +275,52 @@ final class Renderer: NSObject, MTKViewDelegate {
         e.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
         e.setFragmentTexture(texture, index: 0)
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
+        drawCats(e, mesh: m, cloth: cloth, uniforms: &u)
         e.endEncoding()
         cmd.present(drawable)
         cmd.commit()
+    }
+}
+
+struct CatVertex { var pos: SIMD3<Float>; var uv: SIMD2<Float> }
+
+extension Renderer {
+    /// 貓貼在毯面上：位置取細網格在那個 uv 的表面，方向 = 地毯角度 + 貓自己的朝向。先畫影子再畫貓。
+    fileprivate func drawCats(_ e: MTLRenderCommandEncoder, mesh: RenderMesh, cloth: Cloth, uniforms u: inout Uniforms) {
+        guard let sprites = catSprites, !cats.isEmpty else { return }
+        let rugAngle = cloth.fittedPlacement().angle
+        let size = cloth.restSize
+        e.setRenderPipelineState(catPipe)
+        e.setDepthStencilState(nil)
+        e.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 1)
+        for (kind, pose) in cats where kind < sprites.kinds.count {
+            let k = sprites.kinds[kind]
+            guard let tex = k.textures[pose.anim] else { continue }
+            let uv = SIMD2(pose.pos.x / size.x + 0.5, pose.pos.y / size.y + 0.5)
+            let (center, _) = mesh.sample(uv)
+            let w = catLength / k.bodyLength, h = w * (128.0 / 192.0)
+            let a = rugAngle + pose.heading
+            let ax = SIMD2(cos(a), sin(a)), ay = SIMD2(-sin(a), cos(a))
+            let col = Float(pose.frame % 4), row = Float(pose.frame / 4)
+            // 貼圖原點在左上：格子上緣（v 小）是貓的左側（局部 +y）
+            func corner(_ sx: Float, _ sy: Float) -> CatVertex {
+                let p = SIMD2(center.x, center.y) + ax * (sx * w / 2) + ay * (sy * h / 2)
+                return CatVertex(pos: SIMD3(p.x, p.y, center.z + 1),
+                                 uv: SIMD2((col + (sx + 1) / 2) / 4, (row + (1 - sy) / 2) / 4))
+            }
+            var quad = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, -1), corner(1, 1), corner(-1, 1)]
+            e.setFragmentTexture(tex, index: 0)
+            // 影子：往右下偏一點
+            var shadow = quad.map { CatVertex(pos: $0.pos + SIMD3(2, -3, -1), uv: $0.uv) }
+            var shade: Float = -0.28
+            e.setVertexBytes(&shadow, length: MemoryLayout<CatVertex>.stride * 6, index: 0)
+            e.setFragmentBytes(&shade, length: 4, index: 2)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+            shade = 1
+            e.setVertexBytes(&quad, length: MemoryLayout<CatVertex>.stride * 6, index: 0)
+            e.setFragmentBytes(&shade, length: 4, index: 2)
+            e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        }
     }
 }
 

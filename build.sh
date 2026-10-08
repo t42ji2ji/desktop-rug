@@ -8,6 +8,8 @@ rm -rf $APP
 mkdir -p $APP/Contents/MacOS $APP/Contents/Resources/patterns
 cp .build/release/DesktopRug $APP/Contents/MacOS/
 cp patterns/*.png $APP/Contents/Resources/patterns/ 2>/dev/null || true
+mkdir -p $APP/Contents/Resources/cats
+cp cats/*.png cats/meta.json $APP/Contents/Resources/cats/ 2>/dev/null || true
 cat > $APP/Contents/Info.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
