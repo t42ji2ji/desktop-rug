@@ -76,10 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rug.setupScreens()
 
         applyPattern()
-        if !defaults.bool(forKey: "hidden") { rug.show(savedPlacement() ?? defaultPlacement()) }
         if let i = CommandLine.arguments.firstIndex(of: "--demo"), i + 1 < CommandLine.arguments.count {
             rug.demo = CommandLine.arguments[i + 1]
         }
+        // demo 一律先鋪出來（不寫回「已收起」的設定）
+        if !defaults.bool(forKey: "hidden") || rug.demo != nil { rug.show(savedPlacement() ?? defaultPlacement()) }
         rug.start()
         if rug.demo == "tuning" { showTuning() }
 
@@ -203,12 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showRug() {
         defaults.set(false, forKey: "hidden")
-        rug.show(savedPlacement() ?? defaultPlacement())
+        rug.showAnimated(savedPlacement() ?? defaultPlacement())
     }
 
     @objc func resetRug() {
         defaults.set(false, forKey: "hidden")
-        rug.show(defaultPlacement())
+        rug.showAnimated(defaultPlacement())
         save()
     }
 

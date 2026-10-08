@@ -192,42 +192,45 @@ final class RugController: NSObject {
         for i in cats.indices { cats[i].cat.length = tuning.catLength }
     }
 
-    /// 收起動畫：右半翻到左半上、上半往下對折、縮小消失，播完才真的收起。
-    private var stow: (frame: Int, base: RugPlacement, done: () -> Void)?
+    /// 收起／鋪開的折疊動畫（播放中不跑物理、不畫貓、不吃互動）
+    private var fold: (t: Float, duration: Float, reverse: Bool, anim: FoldAnimation, done: () -> Void)?
+    private var stow: Bool { fold != nil }
 
     func stowRug(then done: @escaping () -> Void) {
-        guard let cloth, stow == nil else { return }
+        guard let cloth, fold == nil else { return }
         var p = cloth.fittedPlacement()
         p.angle = 0
         cloth.release()
         drag = nil
         stickyEdit = false
-        stow = (0, p, done)
+        fold = (0, 1.7, false, FoldAnimation(placement: p), done)
     }
 
-    private func stepStow() {
-        guard var s = stow, let cloth else { return }
-        s.frame += 1
-        stow = s
-        let t = Float(s.frame) / 60
-        func ease(_ x: Float) -> Float { let c = min(max(x, 0), 1); return c * c * (3 - 2 * c) }
-        let a1 = ease(t / 0.45) * .pi, a2 = ease((t - 0.45) / 0.45) * .pi
-        let shrink = 1 - ease((t - 0.95) / 0.35)
-        let p = s.base, th: Float = 4
-        cloth.pose { uv in
-            var x = (uv.x - 0.5) * p.size.x, y = (uv.y - 0.5) * p.size.y, z: Float = 0
-            // 1. 沿垂直中線把右半翻過來
-            if x > 0 { let r = x; x = r * cos(a1); z = r * sin(a1) + th * a1 / .pi }
-            // 2. 疊好的兩層再沿水平中線把上半往下折
-            if y > 0 { let r = y, zz = z; y = r * cos(a2) - zz * sin(a2); z = r * sin(a2) + zz * cos(a2) + 2 * th * a2 / .pi }
-            // 3. 縮小收走（往左下那一塊的中心縮）
-            let anchor = SIMD2<Float>(-p.size.x / 4, -p.size.y / 4)
-            let q = anchor + (SIMD2(x, y) - anchor) * shrink
-            let w = p.center + p.axisX * q.x + p.axisY * q.y
-            return SIMD3(w.x, w.y, z * shrink)
-        }
+    /// 從折好的小包落下、打開兩折，鋪成這個擺法
+    func showAnimated(_ placement: RugPlacement) {
+        show(placement)
+        drag = nil
+        stickyEdit = false
+        fold = (0, 1.5, true, FoldAnimation(placement: placement), {})
+        stepFold()
+    }
+
+    private func stepFold() {
+        guard var f = fold, let cloth else { return }
+        f.t += 1.0 / 60
+        fold = f
+        let progress = f.reverse ? 1 - f.t / f.duration : f.t / f.duration
+        let anim = f.anim
+        cloth.pose { uv in anim.position(uv: uv, progress: min(max(progress, 0), 1)) }
         needsDraw = true
-        if t >= 1.3 { stow = nil; hideRug(); s.done() }
+        guard f.t >= f.duration else { return }
+        fold = nil
+        if f.reverse {
+            cloth.flatten(to: anim.placement)   // 攤平後交給物理
+        } else {
+            hideRug()
+        }
+        f.done()
     }
 
     /// 要顯示的貓各一隻，散在地毯上
@@ -286,7 +289,7 @@ final class RugController: NSObject {
         timer = t
     }
 
-    // 開發用：`DesktopRug --demo fold|flick|bumps|edit|stow|tuning` 跑腳本動作，方便不碰滑鼠截圖驗畫面
+    // 開發用：`DesktopRug --demo fold|flick|bumps|edit|stow|appear|cross|tuning` 跑腳本動作，方便不碰滑鼠截圖驗畫面
     var demo: String?
     private var demoFrame = 0
     private var demoFrom = SIMD2<Float>(0, 0)
@@ -327,6 +330,8 @@ final class RugController: NSObject {
             if demoFrame == 90 { cloth.release() }
         case "stow":
             if demoFrame == 30 { stowRug {} }
+        case "appear":
+            if demoFrame == 30 { showAnimated(p) }
         case "edit":
             editMode = true
             activeCorner = 2
@@ -363,7 +368,7 @@ final class RugController: NSObject {
             stickyEdit = false
         }
 
-        if let cloth, stow == nil, !cats.isEmpty {
+        if let cloth, !stow, !cats.isEmpty {
             let positions = cats.map(\.cat.pos)
             for i in cats.indices {
                 let others = positions.enumerated().filter { $0.offset != i }.map(\.element)
@@ -374,8 +379,8 @@ final class RugController: NSObject {
             }
             needsDraw = true
         }
-        if stow != nil {
-            stepStow()
+        if stow {
+            stepFold()
         } else if let cloth, !cloth.isSettled || drag != nil || cloth.grabbed != nil {
             cloth.step(dt: 1.0 / 60)
             needsDraw = true
@@ -387,13 +392,13 @@ final class RugController: NSObject {
         }
         if needsDraw {
             needsDraw = false
-            let p = editMode && stow == nil ? cloth?.fittedPlacement() : nil
+            let p = editMode && !stow ? cloth?.fittedPlacement() : nil
             // 花色列只放在地毯中心所在的那個螢幕
             let home = p.flatMap { surface(containing: $0.center) }
             for s in surfaces {
                 let cam = s.camera
                 s.renderer.origin = cam.origin
-                s.renderer.cats = stow == nil ? cats.map { ($0.kind, $0.cat.pose) } : []
+                s.renderer.cats = !stow ? cats.map { ($0.kind, $0.cat.pose) } : []
                 s.draw()
                 var local = p
                 local?.center -= cam.origin
@@ -432,7 +437,7 @@ final class RugController: NSObject {
     // MARK: 滑鼠（統一座標）
 
     func mouseDown(at q: SIMD2<Float>) {
-        guard let cloth, stow == nil else { return }
+        guard let cloth, !stow else { return }
         if editMode {
             guard let target = editTarget(at: q) else { return }
             var p = cloth.fittedPlacement()
@@ -459,7 +464,7 @@ final class RugController: NSObject {
     }
 
     func rightMouseDown(at q: SIMD2<Float>) {
-        guard stow == nil else { return }
+        guard !stow else { return }
         if stickyEdit { stickyEdit = false }
         else if let cam = surface(containing: q)?.camera, clothHit(q, camera: cam) { stickyEdit = true }
         needsDraw = true
@@ -504,7 +509,7 @@ final class RugController: NSObject {
 
     /// 游標底下有沒有貓（橢圓判定，大約是身體不含尾巴）
     private func catAt(_ q: SIMD2<Float>) -> Int? {
-        guard stow == nil, cloth != nil else { return nil }
+        guard !stow, cloth != nil else { return nil }
         let local = rugLocal(q)
         for i in cats.indices.reversed() {
             let c = cats[i].cat
