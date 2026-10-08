@@ -27,6 +27,8 @@ public struct Cat {
     }
 
     public static let frames = 16
+    /// 身體中心離地毯邊至少留多少（× 身長）。小於 0.5 = 頭或尾巴可以伸出地毯外
+    public static let edgeMargin: Float = 0.15
     public var length: Float          // 貓身長（點），用來留邊與換算步幅
     public var speed: Float = 42      // 走路速度（點/秒）
     public var strideFrames: Float = 8 // 走一個步伐循環（walk 的 8 格）走多遠 = length * 0.9
@@ -79,7 +81,7 @@ public struct Cat {
     public mutating func update(dt: Float, rugSize: SIMD2<Float>, others: [SIMD2<Float>],
                                 spotOK: (SIMD2<Float>) -> Bool = { _ in true }) {
         if case .held = state { return }
-        let half = rugSize / 2 - SIMD2(repeating: length * 0.55)
+        let half = rugSize / 2 - SIMD2(repeating: length * Cat.edgeMargin)
         // 地毯被縮小了：先站回地毯上
         pos = simd_clamp(pos, -simd_max(half, .zero), simd_max(half, .zero))
         loopClock += dt
@@ -137,7 +139,7 @@ public struct Cat {
 
     /// 由近到遠找一個能待的點
     private mutating func nearestOK(rugSize: SIMD2<Float>, spotOK: (SIMD2<Float>) -> Bool) -> SIMD2<Float>? {
-        let half = simd_max(rugSize / 2 - SIMD2(repeating: length * 0.6), SIMD2(repeating: 1))
+        let half = simd_max(rugSize / 2 - SIMD2(repeating: length * Cat.edgeMargin), SIMD2(repeating: 1))
         for ring in 1...8 {
             let r = Float(ring) * length * 0.5
             for k in 0..<12 {
@@ -153,7 +155,7 @@ public struct Cat {
         loopClock = 0
         let r = rng.float(0, 1)
         if r < 0.45 {
-            let half = simd_max(rugSize / 2 - SIMD2(repeating: length * 0.6), SIMD2(repeating: 1))
+            let half = simd_max(rugSize / 2 - SIMD2(repeating: length * Cat.edgeMargin), SIMD2(repeating: 1))
             // 試幾個點，挑離其他貓最遠的
             var best = pos, bestScore = -Float.infinity
             for _ in 0..<10 {
