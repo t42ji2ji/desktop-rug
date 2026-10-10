@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Rug — sweep the mess under the rug</title>
+<meta name="description" content="A soft, heavy rug for the Mac desktop. Lift it, fold it, slide it, and let the cats move in. Free for macOS.">
+<meta name="theme-color" content="#f4ece1">
+<link rel="canonical" href="https://rug.dorara.app/">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Desktop Rug">
+<meta property="og:url" content="https://rug.dorara.app/">
+<meta property="og:title" content="Desktop Rug — sweep the mess under the rug">
+<meta property="og:description" content="A soft, heavy rug for the Mac desktop, with cats. Free for macOS.">
+<meta property="og:image" content="https://rug.dorara.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://rug.dorara.app/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var lang = null;
+    try { lang = localStorage.getItem("rug-lang"); } catch (e) {}
+    if (lang !== "en" && lang !== "zh") lang = /^zh/i.test(navigator.language || "") ? "zh" : "en";
+    document.documentElement.setAttribute("data-lang", lang);
+    document.documentElement.lang = lang === "zh" ? "zh-Hant-TW" : "en";
+  })();
+</script>
+<style>
+  :root {
+    --bg: #f4ece1;
+    --bg-2: #ebe0d1;
+    --card: #fbf7f1;
+    --ink: #2c2219;
+    --ink-2: #6b5a4a;
+    --line: #dccdb9;
+    --rust: #c2532a;
+    --rust-2: #a8441f;
+    --mustard: #d79a2c;
+    --brown: #5a3519;
+    --radius: 18px;
+    --serif: "Fraunces", "Noto Serif TC", "Songti TC", Georgia, serif;
+    --sans: "Inter", "PingFang TC", "Noto Sans TC", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  html[data-lang="en"] .zh, html[data-lang="zh"] .en { display: none !important; }
+  a { color: inherit; }
+  img, video { display: block; max-width: 100%; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+  /* top bar */
+  .bar { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .bar .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 17px var(--sans); }
+  .brand img { width: 30px; height: 30px; }
+  .bar nav { display: flex; align-items: center; gap: 14px; }
+  .lang { display: flex; background: var(--bg-2); border-radius: 999px; padding: 3px; }
+  .lang button { border: 0; background: transparent; font: 500 13px var(--sans); color: var(--ink-2); padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+  .lang button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+  .bar a.gh { font-size: 14px; color: var(--ink-2); text-decoration: none; }
+  .bar a.gh:hover { color: var(--ink); }
+
+  /* hero */
+  .hero { padding: 64px 0 40px; text-align: center; }
+  .hero h1 { font: 700 clamp(40px, 7vw, 76px)/1.04 var(--serif); letter-spacing: -0.02em; margin: 0 auto 18px; max-width: 14ch; }
+  html[data-lang="zh"] .hero h1 { max-width: 12em; letter-spacing: 0; line-height: 1.15; }
+  .hero p.lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--ink-2); max-width: 36em; margin: 0 auto 28px; }
+  .cta { display: inline-flex; flex-direction: column; align-items: center; gap: 10px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; background: var(--rust); color: #fff; text-decoration: none; font: 600 17px var(--sans); padding: 14px 26px; border-radius: 999px; box-shadow: 0 6px 18px rgb(194 83 42 / .28); transition: transform .15s, background .15s; }
+  .btn:hover { background: var(--rust-2); transform: translateY(-1px); }
+  .btn svg { width: 20px; height: 20px; }
+  .meta { font-size: 13px; color: var(--ink-2); }
+  .stage { margin: 44px auto 0; max-width: 1040px; border-radius: 22px; overflow: hidden; background: var(--bg-2); box-shadow: 0 30px 60px -30px rgb(60 35 15 / .35), 0 0 0 1px var(--line); aspect-ratio: 1600 / 1000; }
+  .stage video { width: 100%; height: 100%; object-fit: cover; }
+
+  /* features */
+  section.block { padding: 72px 0; }
+  .eyebrow { font: 600 13px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--rust); margin: 0 0 10px; }
+  html[data-lang="zh"] .eyebrow { letter-spacing: .15em; }
+  h2 { font: 700 clamp(30px, 4.4vw, 46px)/1.1 var(--serif); margin: 0 0 14px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-2); max-width: 34em; margin: 0 0 36px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+  .card video, .card .art { width: 100%; aspect-ratio: 880 / 608; object-fit: cover; background: var(--bg-2); }
+  .card .text { padding: 20px 22px 24px; }
+  .card h3 { font: 700 22px/1.25 var(--serif); margin: 0 0 6px; }
+  .card p { margin: 0; color: var(--ink-2); }
+
+  .art.bumps { display: grid; place-items: center; background: linear-gradient(160deg, #efe5d8, #e2d4c1); }
+  .art.bumps svg { width: 78%; height: auto; }
+  .art.patterns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 18px; background: linear-gradient(160deg, #efe5d8, #e2d4c1); align-content: center; }
+  .art.patterns img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 6px; box-shadow: 0 3px 8px rgb(60 35 15 / .2); }
+  .art.patterns .plus { display: grid; place-items: center; aspect-ratio: 3 / 2; border: 2px dashed #b9a48a; border-radius: 6px; color: #8d765e; font: 500 30px var(--sans); }
+
+  /* how to */
+  .how { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .how .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; padding: 16px 22px; border-top: 1px solid var(--line); }
+  .how .row:first-child { border-top: 0; }
+  .how .do { font-weight: 600; }
+  .how .what { color: var(--ink-2); }
+  kbd { font: 500 13px var(--sans); background: var(--bg-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; }
+
+  /* install */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; counter-reset: s; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--mustard); color: #fff; font: 700 17px var(--serif); margin-bottom: 12px; }
+  .step h3 { font: 700 19px/1.3 var(--serif); margin: 0 0 6px; }
+  .step p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .notes { margin-top: 28px; display: grid; gap: 12px; color: var(--ink-2); font-size: 15px; max-width: 46em; }
+  .notes b { color: var(--ink); }
+
+  .closing { text-align: center; padding: 80px 0 90px; }
+  .closing h2 { margin-bottom: 22px; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; font-size: 14px; color: var(--ink-2); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+  footer a { text-decoration: none; }
+  footer a:hover { color: var(--ink); text-decoration: underline; }
+
+  @media (max-width: 760px) {
+    .grid, .steps { grid-template-columns: 1fr; }
+    .how .row { grid-template-columns: 1fr; gap: 2px; }
+    .hero { padding-top: 44px; }
+    section.block { padding: 52px 0; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="30" height="30"><span>Desktop Rug</span></a>
+    <nav>
+      <div class="lang" role="group" aria-label="Language / 語言">
+        <button type="button" data-set-lang="en">EN</button>
+        <button type="button" data-set-lang="zh">中文</button>
+      </div>
+      <a class="gh" href="https://github.com/t42ji2ji/desktop-rug">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="wrap">
+      <h1><span class="en">Sweep the mess under the rug.</span><span class="zh">亂糟糟的桌面，掃到地毯底下。</span></h1>
+      <p class="lede">
+        <span class="en">A soft, heavy rug for the Mac desktop. Lift it, fold it, slide it — and let the cats move in.</span>
+        <span class="zh">一張鋪在 Mac 桌面上的厚地毯。可以掀、可以折、可以拖著走，還有貓住在上面。</span>
+      </p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/t42ji2ji/desktop-rug/releases/latest/download/DesktopRug.dmg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+          <span class="en">Download for Mac</span><span class="zh">下載 Mac 版</span>
+        </a>
+        <span class="meta"><span class="en">Free · macOS 14 or later · Apple Silicon</span><span class="zh">免費・macOS 14 以上・Apple 晶片</span></span>
+      </div>
+      <div class="stage">
+        <video src="assets/showcase.mp4" poster="assets/poster.jpg" autoplay muted loop playsinline aria-label="A rug on the desktop being folded and dragged while cats walk on it"></video>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <p class="eyebrow"><span class="en">What it does</span><span class="zh">有什麼</span></p>
+      <h2><span class="en">A real piece of cloth on the desktop.</span><span class="zh">桌面上真的有一塊布。</span></h2>
+      <p class="sub">
+        <span class="en">The rug lies on the desktop, under every window, so it covers the clutter without getting in the way of work.</span>
+        <span class="zh">地毯鋪在桌面那一層、在所有視窗底下：蓋住雜亂，但不擋工作。</span>
+      </p>
+      <div class="grid">
+        <article class="card">
+          <video src="assets/clips/fold.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+          <div class="text">
+            <h3><span class="en">Grab an edge, flip a corner</span><span class="zh">抓住一邊，翻起一角</span></h3>
+            <p><span class="en">Any edge lifts and folds. Flip a corner over, pull it back flat — it drops with real weight.</span><span class="zh">哪一邊都能掀起、折起。角翻過去、再拉回來攤平，放手時帶著重量落下。</span></p>
+          </div>
+        </article>
+        <article class="card">
+          <video src="assets/clips/slide.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+          <div class="text">
+            <h3><span class="en">Drag the middle to move it</span><span class="zh">拖中間，整張一起走</span></h3>
+            <p><span class="en">The whole rug slides along like a heavy rug over a wooden floor.</span><span class="zh">像厚地毯在木地板上被拉著走，整張跟著滑過去。</span></p>
+          </div>
+        </article>
+        <article class="card">
+          <video src="assets/clips/cat.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+          <div class="text">
+            <h3><span class="en">Cats included</span><span class="zh">附貓</span></h3>
+            <p><span class="en">Four cats wander, roll over for belly rubs, scratch, and sit to look up at the screen. Pick one up to move it.</span><span class="zh">四隻貓會到處走、翻肚撒嬌、抓癢，還會坐下來抬頭看螢幕。可以把牠拎起來換個地方。</span></p>
+          </div>
+        </article>
+        <article class="card">
+          <video src="assets/clips/putaway.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+          <div class="text">
+            <h3><span class="en">Folds itself away</span><span class="zh">自己折好收起來</span></h3>
+            <p><span class="en">Put the rug away and it folds up neatly. Lay it out again and it unfolds.</span><span class="zh">收起時會整整齊齊折好，再鋪開時一層一層打開。</span></p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="art bumps" aria-hidden="true">
+            <svg viewBox="0 0 400 220">
+              <defs>
+                <linearGradient id="rugg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#d06a35"/><stop offset="1" stop-color="#9c4520"/></linearGradient>
+              </defs>
+              <rect x="70" y="150" width="34" height="40" rx="4" fill="#fff" stroke="#c9b9a4"/>
+              <rect x="74" y="140" width="34" height="40" rx="4" fill="#9fd0ef" stroke="#c9b9a4"/>
+              <rect x="78" y="130" width="34" height="40" rx="4" fill="#fff" stroke="#c9b9a4"/>
+              <rect x="250" y="150" width="34" height="40" rx="4" fill="#fff" stroke="#c9b9a4"/>
+              <path d="M20 190 C 60 190, 70 112, 104 112 C 140 112, 150 190, 200 190 C 235 190, 245 150, 268 150 C 292 150, 300 190, 380 190 L 380 204 L 20 204 Z" fill="url(#rugg)"/>
+              <path d="M20 190 C 60 190, 70 112, 104 112 C 140 112, 150 190, 200 190 C 235 190, 245 150, 268 150 C 292 150, 300 190, 380 190" fill="none" stroke="#5a3519" stroke-width="3"/>
+            </svg>
+          </div>
+          <div class="text">
+            <h3><span class="en">Files make bumps</span><span class="zh">檔案會頂出凸起</span></h3>
+            <p><span class="en">Icons under the rug push it up. The taller the pile, the bigger the bump.</span><span class="zh">地毯底下的圖示會把它頂起來，疊得越高，凸起越大。</span></p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="art patterns" aria-hidden="true">
+            <img src="assets/patterns/retro-check.jpg" alt=""><img src="assets/patterns/persian-red.jpg" alt=""><img src="assets/patterns/kilim.jpg" alt="">
+            <img src="assets/patterns/blue-tabriz.jpg" alt=""><img src="assets/patterns/pixel-space.jpg" alt=""><span class="plus">+</span>
+          </div>
+          <div class="text">
+            <h3><span class="en">Any pattern</span><span class="zh">任何花色</span></h3>
+            <p><span class="en">Eight rugs are built in. Any image on the Mac can become a rug too.</span><span class="zh">內建八款地毯，Mac 上的任何一張圖片也能變成地毯。</span></p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how">
+    <div class="wrap">
+      <p class="eyebrow"><span class="en">How to use</span><span class="zh">怎麼玩</span></p>
+      <h2><span class="en">Everything is a drag away.</span><span class="zh">用滑鼠拖一拖就好。</span></h2>
+      <div class="how">
+        <div class="row"><span class="do"><span class="en">Drag the middle</span><span class="zh">拖地毯中間</span></span><span class="what"><span class="en">Slides the whole rug</span><span class="zh">整張滑過去</span></span></div>
+        <div class="row"><span class="do"><span class="en">Drag an edge or corner</span><span class="zh">拖邊緣或角落</span></span><span class="what"><span class="en">Lifts and folds that part</span><span class="zh">掀起、折起那一塊</span></span></div>
+        <div class="row"><span class="do"><span class="en">Right-click the rug</span><span class="zh">對地毯按右鍵</span></span><span class="what"><span class="en">Edit bar: resize from the corners, move, change pattern, choose cats</span><span class="zh">編輯列：拖角落縮放、拖動位置、換花色、選要出現的貓</span></span></div>
+        <div class="row"><span class="do"><span class="en">Hold <kbd>⌥ Option</kbd></span><span class="zh">按住 <kbd>⌥ Option</kbd></span></span><span class="what"><span class="en">The same edit bar, while the key is held</span><span class="zh">同樣的編輯列，放開就收起</span></span></div>
+        <div class="row"><span class="do"><span class="en"><kbd>+</kbd> in the edit bar</span><span class="zh">編輯列的 <kbd>+</kbd></span></span><span class="what"><span class="en">Turn an image into a rug</span><span class="zh">把圖片變成地毯</span></span></div>
+        <div class="row"><span class="do"><span class="en">Drag a cat</span><span class="zh">拖一隻貓</span></span><span class="what"><span class="en">Picks it up and puts it somewhere else</span><span class="zh">把牠拎起來放到別處</span></span></div>
+        <div class="row"><span class="do"><span class="en">Trash icon in the edit bar</span><span class="zh">編輯列的垃圾桶</span></span><span class="what"><span class="en">Folds the rug up and puts it away</span><span class="zh">把地毯折好收起來</span></span></div>
+        <div class="row"><span class="do"><span class="en">Menu bar icon</span><span class="zh">選單列圖示</span></span><span class="what"><span class="en">Lay the rug out again, move it to the center, tune how heavy it feels, quit</span><span class="zh">重新鋪開、移回中間、調整地毯的重量和軟硬、結束</span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="install">
+    <div class="wrap">
+      <p class="eyebrow"><span class="en">Install</span><span class="zh">安裝</span></p>
+      <h2><span class="en">Up and running in a minute.</span><span class="zh">一分鐘就能鋪好。</span></h2>
+      <div class="steps">
+        <div class="step">
+          <h3><span class="en">Download</span><span class="zh">下載</span></h3>
+          <p><span class="en">Get <a href="https://github.com/t42ji2ji/desktop-rug/releases/latest/download/DesktopRug.dmg">DesktopRug.dmg</a>. It's free.</span><span class="zh">下載 <a href="https://github.com/t42ji2ji/desktop-rug/releases/latest/download/DesktopRug.dmg">DesktopRug.dmg</a>，免費。</span></p>
+        </div>
+        <div class="step">
+          <h3><span class="en">Drag to Applications</span><span class="zh">拖進「應用程式」</span></h3>
+          <p><span class="en">Open the file and drag Desktop Rug into the Applications folder.</span><span class="zh">打開檔案，把 Desktop Rug 拖進「應用程式」資料夾。</span></p>
+        </div>
+        <div class="step">
+          <h3><span class="en">Open it</span><span class="zh">打開</span></h3>
+          <p><span class="en">The rug appears on the desktop. Settings live in the menu bar's checkered icon — there is no Dock icon.</span><span class="zh">地毯會出現在桌面上。設定在選單列的格紋圖示裡，Dock 上不會出現。</span></p>
+        </div>
+      </div>
+      <div class="notes">
+        <p><span class="en"><b>"Desktop Rug wants to control Finder."</b> macOS asks this on first launch. It is only used to read where the desktop icons are, so the rug can bump up over them. Saying no is fine — the rug just stays flat.</span><span class="zh"><b>「Desktop Rug 想要控制 Finder」</b>：第一次打開時 macOS 會問。這只用來讀取桌面圖示的位置，讓地毯在圖示上隆起。不允許也沒關係，地毯就保持平的。</span></p>
+        <p><span class="en"><b>Icons under the rug can't be clicked.</b> Lift a corner or move the rug to reach them.</span><span class="zh"><b>被地毯蓋住的圖示點不到</b>，掀起一角或把地毯移開就可以。</span></p>
+        <p><span class="en"><b>To uninstall,</b> quit from the menu bar icon and move the app to the Trash.</span><span class="zh"><b>移除：</b>從選單列圖示選「結束」，再把 app 丟進垃圾桶。</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap">
+      <h2><span class="en">Out of sight, out of mind.</span><span class="zh">眼不見，心就靜。</span></h2>
+      <a class="btn" href="https://github.com/t42ji2ji/desktop-rug/releases/latest/download/DesktopRug.dmg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+        <span class="en">Download for Mac</span><span class="zh">下載 Mac 版</span>
+      </a>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>
+      <span class="en">Inspired by <a href="https://x.com/terkelg/status/2107540718461886464">Terkel's desktop rug</a>. An independent remake, not affiliated with the original.</span>
+      <span class="zh">靈感來自 <a href="https://x.com/terkelg/status/2107540718461886464">Terkel 的桌面地毯</a>。獨立重做的版本，跟原作沒有關係。</span>
+    </span>
+    <nav>
+      <a href="https://github.com/t42ji2ji/desktop-rug">GitHub</a>
+      <a href="https://github.com/t42ji2ji/desktop-rug/releases"><span class="en">Releases</span><span class="zh">版本下載</span></a>
+      <a href="https://github.com/t42ji2ji/desktop-rug/blob/main/LICENSE"><span class="en">License (GPL-3.0)</span><span class="zh">授權（GPL-3.0）</span></a>
+      <a href="https://dorara.app">dorara.app</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    function setLang(lang, remember) {
+      document.documentElement.setAttribute("data-lang", lang);
+      document.documentElement.lang = lang === "zh" ? "zh-Hant-TW" : "en";
+      document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.getAttribute("data-set-lang") === lang));
+      });
+      if (remember) { try { localStorage.setItem("rug-lang", lang); } catch (e) {} }
+    }
+    setLang(document.documentElement.getAttribute("data-lang"), false);
+    document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+      b.addEventListener("click", function () { setLang(b.getAttribute("data-set-lang"), true); });
+    });
+    // 省電：影片捲出畫面就暫停
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { e.target.play().catch(function () {}); } else { e.target.pause(); } });
+      }, { threshold: 0.15 });
+      document.querySelectorAll("video").forEach(function (v) { io.observe(v); });
+    }
+  })();
+</script>
+</body>
+</html>
