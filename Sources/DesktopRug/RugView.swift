@@ -245,6 +245,85 @@ final class RugController: NSObject {
         }
     }
 
+    // MARK: 官網影片的展示劇本（--record）
+
+    /// 劇本開始時要鋪在哪裡、顯示哪幾隻貓（都只在記憶體，不寫設定）
+    var showcasePlacement: RugPlacement?
+    func setShowcaseCats(_ names: Set<String>) { visibleCats = names }
+    /// 畫在影片上的手：位置（統一座標）、是否握住
+    private(set) var demoCursor: (pos: SIMD2<Float>, closed: Bool)?
+
+    private func runShowcase() {
+        let f = demoFrame
+        func lerp(_ a: SIMD2<Float>, _ b: SIMD2<Float>, _ from: Int, _ to: Int) -> SIMD2<Float> {
+            let t = min(max(Float(f - from) / Float(to - from), 0), 1)
+            let e = t * t * (3 - 2 * t)
+            return a + (b - a) * e
+        }
+        if f == 20, let p = showcasePlacement { showAnimated(p) }
+        guard let cloth, let p = showcasePlacement else { return }
+        // 1. 掀角折過去
+        let corner = p.point(u: 1, v: 1), over = p.point(u: 0.42, v: 0.4)
+        if f == 230 { demoCursor = (corner + SIMD2(60, 50), false) }
+        if f > 230 && f < 290 { demoCursor = (lerp(corner + SIMD2(60, 50), corner, 230, 290), false) }
+        if f == 290 { cloth.grab(near: corner); demoCursor = (corner, true) }
+        if f > 290 && f <= 380 { let q = lerp(corner, over, 290, 380); cloth.moveGrab(to: q); demoCursor = (q, true) }
+        if f == 400 { cloth.release(); demoCursor = (over, false) }
+        // 2. 抓住翻過來的角拉回去攤平
+        if f == 520 { demoFrom = cloth.pos[cloth.index(cloth.nx - 1, cloth.ny - 1)].xy2; cloth.grab(near: demoFrom); demoCursor = (demoFrom, true) }
+        if f > 520 && f <= 590 { let q = lerp(demoFrom, corner + SIMD2(10, 8), 520, 590); cloth.moveGrab(to: q); demoCursor = (q, true) }
+        if f == 600 { cloth.release() }
+        if f > 600 && f < 640 { demoCursor = (lerp(corner + SIMD2(10, 8), p.center, 600, 640), false) }
+        // 3. 抓中間拖著走
+        if f == 660 { cloth.grab(near: p.center); demoCursor = (p.center, true) }
+        if f > 660 && f <= 720 { let q = lerp(p.center, p.center + SIMD2(150, -40), 660, 720); cloth.moveGrab(to: q); demoCursor = (q, true) }
+        if f == 730 { cloth.release(); demoCursor = (p.center + SIMD2(150, -40), false) }
+        // 4. 拎一隻貓換位置
+        if f == 820, !cats.isEmpty {
+            let local = cats[0].cat.pos
+            let place = cloth.fittedPlacement()
+            demoFrom = place.center + place.axisX * local.x + place.axisY * local.y
+            demoTo = place.center + place.axisX * (local.x > 0 ? -150 : 150) + place.axisY * (local.y > 0 ? -60 : 60)
+        }
+        if f > 820 && f < 860 { demoCursor = (lerp(p.center + SIMD2(150, -40), demoFrom, 820, 860), false) }
+        if f == 860, !cats.isEmpty { mouseDown(at: demoFrom); demoCursor = (demoFrom, true) }
+        if f > 860 && f <= 930 { let q = lerp(demoFrom, demoTo, 860, 930); mouseDragged(to: q); demoCursor = (q, true) }
+        if f == 940 { mouseUp(); demoCursor = (demoTo, false) }
+        if f > 1000 { demoCursor = nil }
+        // 5. 收起
+        if f == 1080 { stowRug {} }
+    }
+
+    /// 不開視窗，逐格模擬＋畫到記憶體。region 是要拍的範圍（統一座標，點）。
+    func record(region origin: SIMD2<Float>, size: SIMD2<Float>, scale: CGFloat, frames: Int, every: Int,
+                renderer: Renderer, onFrame: ([UInt8], Int, Int) -> Void) {
+        renderer.origin = origin
+        renderer.catSprites = catSprites
+        if let textureURL { renderer.loadTexture(url: textureURL) }
+        for i in 0..<frames {
+            tick()
+            guard i % every == 0 else { continue }
+            renderer.cloth = cloth
+            renderer.sideThickness = tuning.sideThickness
+            renderer.shadowAlpha = tuning.shadowAlpha
+            renderer.cornerRadius = tuning.cornerRadius
+            renderer.catLength = tuning.catLength
+            renderer.cats = !stow ? cats.map { ($0.kind, $0.cat.pose) } : []
+            let img = renderer.renderImage(viewSize: CGSize(width: CGFloat(size.x), height: CGFloat(size.y)), scale: scale)
+            onFrame(img.pixels, img.width, img.height)
+        }
+    }
+
+    /// 圖示：角掀起來折到一半的地毯（不畫貓）
+    func iconPose(_ p: RugPlacement) {
+        show(p)
+        cats = []
+        guard let cloth else { return }
+        let corner = p.point(u: 1, v: 1), to = p.point(u: 0.62, v: 0.58)
+        cloth.grab(near: corner)
+        for f in 0..<50 { cloth.moveGrab(to: corner + (to - corner) * Float(f) / 49); cloth.step(dt: 1.0 / 60) }
+    }
+
     func hideRug() {
         stickyEdit = false
         cloth = nil
@@ -296,7 +375,9 @@ final class RugController: NSObject {
     private var demoTo = SIMD2<Float>(0, 0)
 
     private func runDemo() {
-        guard let demo, let cloth else { return }
+        guard let demo else { return }
+        if demo == "showcase" { demoFrame += 1; runShowcase(); return }
+        guard let cloth else { return }
         let p = cloth.fittedPlacement()
         demoFrame += 1
         switch demo {
@@ -340,7 +421,7 @@ final class RugController: NSObject {
         }
     }
 
-    private func tick() {
+    func tick() {
         runDemo()
         let m = NSEvent.mouseLocation
         let mouse = SIMD2(Float(m.x), Float(m.y))

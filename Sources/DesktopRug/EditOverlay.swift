@@ -29,8 +29,8 @@ final class EditOverlay: NSView {
         toolbar.layer?.masksToBounds = true
         toolbar.isHidden = true
 
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "加入本機圖片")
-        trashButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "收起地毯")
+        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: L("加入本機圖片", "Add your own image"))
+        trashButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: L("收起地毯", "Put the rug away"))
         for b in [addButton, trashButton] {
             b.isBordered = false
             b.imagePosition = .imageOnly
@@ -83,9 +83,9 @@ final class EditOverlay: NSView {
                 let x = NSButton()
                 x.isBordered = false
                 x.imagePosition = .imageOnly
-                x.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "刪除這個花色")
+                x.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: L("刪除這個花色", "Delete this pattern"))
                 x.contentTintColor = .white
-                x.toolTip = "刪除這個花色"
+                x.toolTip = L("刪除這個花色", "Delete this pattern")
                 x.target = self
                 x.action = #selector(deleted(_:))
                 x.identifier = NSUserInterfaceItemIdentifier(item.id)

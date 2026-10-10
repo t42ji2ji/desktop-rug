@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import MetalKit
 import RugSim
 import simd
 
@@ -10,10 +11,14 @@ struct Pattern {
     var title: String { Pattern.title(for: id) }
     var isUserAdded: Bool { url.deletingLastPathComponent().standardizedFileURL == Pattern.userDir.standardizedFileURL }
 
-    static let titles = [
+    static let titles = prefersChinese ? [
         "persian-red": "波斯紅", "blue-tabriz": "大不里士藍", "beni-ourain": "摩洛哥白",
         "kilim": "基里姆", "sage-modern": "鼠尾草綠", "retro-check": "復古格紋",
         "pink-floral": "玫瑰古董", "pixel-space": "太空",
+    ] : [
+        "persian-red": "Persian Red", "blue-tabriz": "Blue Tabriz", "beni-ourain": "Beni Ourain",
+        "kilim": "Kilim", "sage-modern": "Sage", "retro-check": "Retro Check",
+        "pink-floral": "Faded Rose", "pixel-space": "Space",
     ]
     static func title(for id: String) -> String { titles[id] ?? id }
     static let defaultID = "retro-check"
@@ -71,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--record"), i + 1 < args.count { recordShowcase(to: args[i + 1]); exit(0) }
+        if let i = args.firstIndex(of: "--icon"), i + 1 < args.count { renderIcon(to: args[i + 1]); exit(0) }
         rug.onChange = { [weak self] in self?.save() }
         rug.onSurfacesChanged = { [weak self] in self?.wireOverlays() }
         rug.setupScreens()
@@ -117,6 +125,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func selectSwatch(_ id: String) { for s in rug.surfaces { s.overlay.select(id) } }
+
+    // MARK: 官網素材（不開視窗、不寫設定）
+
+    /// 展示影片：逐格輸出到 ffmpeg，存成帶透明背景的 .mov（之後再疊背景、壓成網頁用的檔）
+    func recordShowcase(to path: String) {
+        let size = SIMD2<Float>(1280, 800), scale: CGFloat = 1.5
+        applyPattern()
+        rug.demo = "showcase"
+        rug.setShowcaseCats(["orange", "calico", "british"])
+        rug.showcasePlacement = RugPlacement(center: size / 2, angle: 0, size: SIMD2(640, 640 / 1.5))
+        let w = Int(CGFloat(size.x) * scale), h = Int(CGFloat(size.y) * scale)
+        let ff = Process()
+        ff.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        ff.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(w)x\(h)", "-r", "30",
+                        "-i", "-", "-c:v", "qtrle", "-pix_fmt", "argb", path]
+        let pipe = Pipe()
+        ff.standardInput = pipe
+        try! ff.run()
+        let open = NSCursor.openHand.image, closed = NSCursor.closedHand.image
+        let renderer = Renderer(view: offscreenView())
+        rug.record(region: .zero, size: size, scale: scale, frames: 1200, every: 2, renderer: renderer) { px, w, h in
+            var px = px
+            // 畫手的游標（影片裡才看得出在抓哪裡）
+            if let c = rug.demoCursor {
+                px.withUnsafeMutableBytes { buf in
+                    let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+                    let img = c.closed ? closed : open
+                    let s = CGFloat(30) * scale
+                    let rect = CGRect(x: CGFloat(c.pos.x) * scale - s / 2, y: CGFloat(c.pos.y) * scale - s / 2, width: s, height: s)
+                    if let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) { ctx.draw(cg, in: rect) }
+                }
+            }
+            pipe.fileHandleForWriting.write(Data(px))
+        }
+        pipe.fileHandleForWriting.closeFile()
+        ff.waitUntilExit()
+    }
+
+    /// app 圖示：角掀起來的地毯，透明背景 1024×1024
+    func renderIcon(to path: String) {
+        applyPattern()
+        let size = SIMD2<Float>(1024, 1024)
+        rug.iconPose(RugPlacement(center: SIMD2(512, 500), angle: 0, size: SIMD2(800, 800 / 1.5)))
+        let renderer = Renderer(view: offscreenView())
+        rug.record(region: .zero, size: size, scale: 1, frames: 1, every: 1, renderer: renderer) { px, w, h in
+            var px = px
+            px.withUnsafeMutableBytes { buf in
+                let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                    space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+                let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+                CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+                CGImageDestinationFinalize(dest)
+            }
+        }
+    }
+
+    private func offscreenView() -> MTKView {
+        let v = MTKView(frame: .zero, device: rug.device)
+        v.colorPixelFormat = .bgra8Unorm
+        v.depthStencilPixelFormat = .depth32Float
+        return v
+    }
 
     // MARK: 擺法存檔
 
@@ -177,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
-        panel.message = "選一張圖片當地毯花色"
+        panel.message = L("選一張圖片當地毯花色", "Choose an image to use as the rug pattern")
         rug.holdEdit = true
         NSApp.activate(ignoringOtherApps: true)
         let ok = panel.runModal() == .OK
@@ -237,23 +310,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let pat = NSMenuItem(title: "花色", action: nil, keyEquivalent: "")
+        let pat = NSMenuItem(title: L("花色", "Pattern"), action: nil, keyEquivalent: "")
         pat.submenu = patternMenu()
         menu.addItem(pat)
         menu.addItem(.separator())
         if rug.cloth == nil {
-            menu.addItem(withTitle: "鋪上地毯", action: #selector(showRug), keyEquivalent: "").target = self
+            menu.addItem(withTitle: L("鋪上地毯", "Lay Out the Rug"), action: #selector(showRug), keyEquivalent: "").target = self
         } else {
-            menu.addItem(withTitle: "收起地毯", action: #selector(hideRug), keyEquivalent: "").target = self
+            menu.addItem(withTitle: L("收起地毯", "Put the Rug Away"), action: #selector(hideRug), keyEquivalent: "").target = self
         }
-        menu.addItem(withTitle: "地毯放回中間", action: #selector(resetRug), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "調整參數…", action: #selector(showTuning), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("地毯放回中間", "Move Rug to Center"), action: #selector(resetRug), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("調整參數…", "Tune the Feel…"), action: #selector(showTuning), keyEquivalent: "").target = self
 
         menu.addItem(.separator())
-        let hint = NSMenuItem(title: "右鍵地毯或按住 ⌥：移動、縮放、換花色", action: nil, keyEquivalent: "")
+        let hint = NSMenuItem(title: L("右鍵地毯或按住 ⌥：移動、縮放、換花色", "Right-click the rug or hold ⌥ to move, resize, restyle"), action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
-        menu.addItem(withTitle: "結束", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: L("結束", "Quit Desktop Rug"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
     // MARK: 桌面圖示 → 凸起

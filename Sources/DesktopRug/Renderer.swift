@@ -217,12 +217,43 @@ final class Renderer: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         guard let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let cmd = queue.makeCommandBuffer() else { return }
+        encode(cmd, pass: pass, viewSize: view.bounds.size, drawableSize: view.drawableSize)
+        cmd.present(drawable)
+        cmd.commit()
+    }
+
+    /// 畫到記憶體裡的畫布（官網影片、app 圖示用），回傳 BGRA 預乘 alpha 的像素
+    func renderImage(viewSize: CGSize, scale: CGFloat) -> (pixels: [UInt8], width: Int, height: Int) {
+        let w = Int(viewSize.width * scale), h = Int(viewSize.height * scale)
+        let cd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
+        cd.usage = [.renderTarget]
+        cd.storageMode = .shared
+        let dd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: w, height: h, mipmapped: false)
+        dd.usage = [.renderTarget]
+        dd.storageMode = .private
+        let color = device.makeTexture(descriptor: cd)!, depthTex = device.makeTexture(descriptor: dd)!
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = color
+        pass.colorAttachments[0].storeAction = .store
+        pass.depthAttachment.texture = depthTex
+        pass.depthAttachment.loadAction = .clear
+        pass.depthAttachment.clearDepth = 1
+        let cmd = queue.makeCommandBuffer()!
+        encode(cmd, pass: pass, viewSize: viewSize, drawableSize: CGSize(width: w, height: h))
+        cmd.commit()
+        cmd.waitUntilCompleted()
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        color.getBytes(&px, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        return (px, w, h)
+    }
+
+    private func encode(_ cmd: MTLCommandBuffer, pass: MTLRenderPassDescriptor, viewSize: CGSize, drawableSize: CGSize) {
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         pass.colorAttachments[0].loadAction = .clear
 
         guard let cloth, let texture else {
             cmd.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
-            cmd.present(drawable); cmd.commit(); return
+            return
         }
 
         if mesh == nil || meshSource !== cloth { mesh = RenderMesh(cloth: cloth); meshSource = cloth }
@@ -237,13 +268,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
         for v in m.side { verts.append(Vertex(pos: v.pos, nrm: v.nrm, uv: v.uv)) }
         let vbuf = device.makeBuffer(bytes: verts, length: MemoryLayout<Vertex>.stride * verts.count)!
-        let b = view.bounds.size
+        let b = viewSize
         var u = Uniforms(view: SIMD2(Float(b.width), Float(b.height)), cam: cameraHeight,
                          rugSize: cloth.restSize, shadowOffset: SIMD2(1.5, -3), shadowLift: 1, shadowAlpha: shadowAlpha, cornerRadius: cornerRadius,
                          origin: origin)
 
         // 1. 影子遮罩（半解析度）→ 模糊
-        ensureMasks(view.drawableSize)
+        ensureMasks(drawableSize)
         let sp = MTLRenderPassDescriptor()
         sp.colorAttachments[0].texture = maskA
         sp.colorAttachments[0].loadAction = .clear
@@ -277,8 +308,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
         drawCats(e, mesh: m, cloth: cloth, uniforms: &u)
         e.endEncoding()
-        cmd.present(drawable)
-        cmd.commit()
     }
 }
 
@@ -356,3 +385,5 @@ struct ScreenCamera {
         q.x >= origin.x && q.y >= origin.y && q.x < origin.x + size.x && q.y < origin.y + size.y
     }
 }
+
+extension SIMD3 where Scalar == Float { var xy2: SIMD2<Float> { SIMD2(x, y) } }

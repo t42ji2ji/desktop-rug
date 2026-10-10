@@ -18,20 +18,20 @@ struct Tuning {
     }
 
     static let knobs: [Knob] = [
-        Knob(key: "gravity", title: "重力", range: 1000...9000, path: \.params.gravity),
-        Knob(key: "timeScale", title: "速度", range: 0.5...2.0, path: \.params.timeScale),
-        Knob(key: "floorFriction", title: "地板摩擦", range: 0...0.6, path: \.params.floorFriction),
-        Knob(key: "moveRigidity", title: "拖中間時整張跟著走", range: 0...1, path: \.params.moveRigidity),
-        Knob(key: "dragFriction", title: "拖中間時地板摩擦", range: 0...0.4, path: \.params.dragFriction),
-        Knob(key: "bend", title: "抗彎曲", range: 0...0.5, path: \.params.bend),
-        Knob(key: "grabLift", title: "抓起高度", range: 5...150, path: \.params.grabLift),
-        Knob(key: "grabFollow", title: "跟手速度", range: 0.03...1, path: \.params.grabFollow),
-        Knob(key: "collisionScale", title: "疊層間距", range: 0.3...0.8, path: \.params.collisionScale),
-        Knob(key: "columns", title: "格子數（橫向）", range: 16...56, path: \.columns),
-        Knob(key: "sideThickness", title: "邊緣厚度", range: 0...20, path: \.sideThickness),
-        Knob(key: "shadowAlpha", title: "陰影濃度", range: 0...0.6, path: \.shadowAlpha),
-        Knob(key: "cornerRadius", title: "圓角", range: 0...80, path: \.cornerRadius),
-        Knob(key: "catLength", title: "貓的大小", range: 60...260, path: \.catLength),
+        Knob(key: "gravity", title: L("重力", "Gravity"), range: 1000...9000, path: \.params.gravity),
+        Knob(key: "timeScale", title: L("速度", "Speed"), range: 0.5...2.0, path: \.params.timeScale),
+        Knob(key: "floorFriction", title: L("地板摩擦", "Floor friction"), range: 0...0.6, path: \.params.floorFriction),
+        Knob(key: "moveRigidity", title: L("拖中間時整張跟著走", "Move as one piece"), range: 0...1, path: \.params.moveRigidity),
+        Knob(key: "dragFriction", title: L("拖中間時地板摩擦", "Friction while moving"), range: 0...0.4, path: \.params.dragFriction),
+        Knob(key: "bend", title: L("抗彎曲", "Stiffness"), range: 0...0.5, path: \.params.bend),
+        Knob(key: "grabLift", title: L("抓起高度", "Lift height"), range: 5...150, path: \.params.grabLift),
+        Knob(key: "grabFollow", title: L("跟手速度", "Follow speed"), range: 0.03...1, path: \.params.grabFollow),
+        Knob(key: "collisionScale", title: L("疊層間距", "Fold thickness"), range: 0.3...0.8, path: \.params.collisionScale),
+        Knob(key: "columns", title: L("格子數（橫向）", "Cloth detail"), range: 16...56, path: \.columns),
+        Knob(key: "sideThickness", title: L("邊緣厚度", "Edge thickness"), range: 0...20, path: \.sideThickness),
+        Knob(key: "shadowAlpha", title: L("陰影濃度", "Shadow"), range: 0...0.6, path: \.shadowAlpha),
+        Knob(key: "cornerRadius", title: L("圓角", "Corner radius"), range: 0...80, path: \.cornerRadius),
+        Knob(key: "catLength", title: L("貓的大小", "Cat size"), range: 60...260, path: \.catLength),
     ]
 
     static func load() -> Tuning {
@@ -67,7 +67,7 @@ final class TuningPanel: NSPanel {
         self.tuning = tuning
         super.init(contentRect: NSRect(x: 0, y: 0, width: 420, height: 10),
                    styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
-        title = "地毯參數"
+        title = L("地毯參數", "Rug Settings")
         isFloatingPanel = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
@@ -91,8 +91,8 @@ final class TuningPanel: NSPanel {
         grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
 
-        let reset = NSButton(title: "重設預設值", target: self, action: #selector(resetAll))
-        let copy = NSButton(title: "複製數值", target: self, action: #selector(copyValues))
+        let reset = NSButton(title: L("重設預設值", "Reset"), target: self, action: #selector(resetAll))
+        let copy = NSButton(title: L("複製數值", "Copy Values"), target: self, action: #selector(copyValues))
         let buttons = NSStackView(views: [reset, copy])
         let stack = NSStackView(views: [grid, buttons])
         stack.orientation = .vertical
