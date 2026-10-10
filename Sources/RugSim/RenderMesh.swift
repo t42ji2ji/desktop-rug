@@ -76,7 +76,9 @@ public struct RenderMesh {
         for j in 0..<ny { for i in 0..<nx {
             let l = pos[j * nx + max(i - 1, 0)], r = pos[j * nx + min(i + 1, nx - 1)]
             let d = pos[max(j - 1, 0) * nx + i], u = pos[min(j + 1, ny - 1) * nx + i]
-            normals[j * nx + i] = simd_normalize(simd_cross(r - l, u - d))
+            // 收起動畫最後整塊縮成一點，法線算不出來：當成朝上
+            let c = simd_cross(r - l, u - d)
+            normals[j * nx + i] = simd_length(c) > 1e-6 ? simd_normalize(c) : SIMD3(0, 0, 1)
         } }
         buildSide(floor: cloth.floor)
     }
@@ -91,7 +93,8 @@ public struct RenderMesh {
             return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty
         }
         let k = j * nx + i
-        return (lerp4(pos, k), simd_normalize(lerp4(normals, k)))
+        let n = lerp4(normals, k)
+        return (lerp4(pos, k), simd_length(n) > 1e-6 ? simd_normalize(n) : SIMD3(0, 0, 1))
     }
 
     /// 圓角外框上的一圈 uv（逆時針，從左下角圓弧結束處開始）。
@@ -128,7 +131,8 @@ public struct RenderMesh {
             var b = p - nrm * thickness
             b.z = max(b.z, floor?.sample(b.x, b.y) ?? 0, 0)
             bot.append(b)
-            out.append(simd_normalize(simd_cross(t, nrm)))
+            let o = simd_cross(t, nrm)
+            out.append(simd_length(o) > 1e-6 ? simd_normalize(o) : SIMD3(1, 0, 0))
         }
         side.removeAll(keepingCapacity: true)
         for a in 0..<n {

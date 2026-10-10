@@ -47,3 +47,37 @@ final class FoldAnimationTests: XCTestCase {
 }
 
 extension SIMD3 where Scalar == Float { var xy: SIMD2<Float> { SIMD2(x, y) } }
+
+/// 有圖示凸起時收起：縮成一點的那幾格不能算出 NaN（以前會讓 app 當掉）
+final class FoldOverBumpsTests: XCTestCase {
+    func testStowOverBumpsStaysFinite() {
+        let place = RugPlacement(center: SIMD2(800, 500), angle: 0, size: SIMD2(600, 400))
+        let c = Cloth(placement: place)
+        let floor = HeightField.fromIcons([place.point(u: 0.3, v: 0.4), place.point(u: 0.7, v: 0.6)],
+                                          iconSize: 64, origin: .zero, size: SIMD2(1600, 1000))
+        c.floor = floor
+        var anim = FoldAnimation(placement: place)
+        anim.floor = { floor.sample($0, $1) }
+        var mesh = RenderMesh(cloth: c)
+        for p: Float in [0, 0.3, 0.6, 0.9, 0.99, 1] {
+            c.pose { anim.position(uv: $0, progress: p) }
+            mesh.update(from: c)
+            XCTAssertTrue(mesh.pos.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }, "progress \(p)")
+            XCTAssertTrue(mesh.side.allSatisfy { $0.pos.z.isFinite && $0.nrm.z.isFinite }, "progress \(p)")
+        }
+    }
+
+    /// 凸起上折好時：疊在同一處的層，上下順序跟沒凸起時一樣（底層不會穿到上面）
+    func testLayersKeepOrderOverBumps() {
+        let place = RugPlacement(center: SIMD2(800, 500), angle: 0, size: SIMD2(600, 400))
+        let floor = HeightField.fromIcons([place.point(u: 0.2, v: 0.2)], iconSize: 64, origin: .zero, size: SIMD2(1600, 1000))
+        let flat = FoldAnimation(placement: place)
+        var bumpy = FoldAnimation(placement: place); bumpy.floor = { floor.sample($0, $1) }
+        let p = FoldAnimation.away.0
+        let q = SIMD2<Float>(0.15, 0.15)
+        let uvs = [q, SIMD2(1 - q.x, q.y), SIMD2(q.x, 1 - q.y), SIMD2(1 - q.x, 1 - q.y)]
+        let orderFlat = uvs.indices.sorted { flat.position(uv: uvs[$0], progress: p).z < flat.position(uv: uvs[$1], progress: p).z }
+        let orderBumpy = uvs.indices.sorted { bumpy.position(uv: uvs[$0], progress: p).z < bumpy.position(uv: uvs[$1], progress: p).z }
+        XCTAssertEqual(orderFlat, orderBumpy)
+    }
+}

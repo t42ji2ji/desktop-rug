@@ -17,7 +17,7 @@ mkdir -p $APP/Contents/Resources/zh-Hant.lproj
 cat > $APP/Contents/Resources/zh-Hant.lproj/InfoPlist.strings <<STRINGS
 "NSAppleEventsUsageDescription" = "Desktop Rug 會讀取桌面圖示的位置，讓地毯在圖示堆上隆起。";
 STRINGS
-VERSION=1.0.0
+VERSION=1.0.1
 cat > $APP/Contents/Info.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -29,7 +29,7 @@ cat > $APP/Contents/Info.plist <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hant</string></array>
   <key>LSMinimumSystemVersion</key><string>14.0</string>

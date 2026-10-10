@@ -6,6 +6,8 @@ public struct FoldAnimation {
     public var placement: RugPlacement
     /// 折痕的半徑（點）：越大折邊越圓、越厚
     public var crease: Float = 10
+    /// 桌面凸起（圖示堆）的高度。疊在同一處的每一層都墊高同樣的量，才不會被凸起頂穿
+    public var floor: ((Float, Float) -> Float)?
 
     public init(placement: RugPlacement) { self.placement = placement }
 
@@ -51,6 +53,6 @@ public struct FoldAnimation {
         q += anchor
         z = z * (1 - t) + 60 * sin(t * .pi * 0.9)
         let w = placement.point(u: 0.5, v: 0.5) + placement.axisX * q.x + placement.axisY * q.y
-        return SIMD3(w.x, w.y, z)
+        return SIMD3(w.x, w.y, z + (floor?(w.x, w.y) ?? 0))
     }
 }

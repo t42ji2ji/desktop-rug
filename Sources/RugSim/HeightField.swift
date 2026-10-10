@@ -55,6 +55,7 @@ public struct HeightField {
 
     /// 雙線性取樣，範圍外 = 0。
     public func sample(_ x: Float, _ y: Float) -> Float {
+        guard x.isFinite, y.isFinite else { return 0 }
         let fx = (x - origin.x) / cell, fy = (y - origin.y) / cell
         if fx < 0 || fy < 0 { return 0 }
         let i = Int(fx), j = Int(fy)

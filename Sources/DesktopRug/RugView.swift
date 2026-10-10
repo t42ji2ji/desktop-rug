@@ -203,7 +203,7 @@ final class RugController: NSObject {
         cloth.release()
         drag = nil
         stickyEdit = false
-        fold = (0, 1.7, false, FoldAnimation(placement: p), done)
+        fold = (0, 1.7, false, foldAnimation(p), done)
     }
 
     /// 從折好的小包落下、打開兩折，鋪成這個擺法
@@ -211,8 +211,14 @@ final class RugController: NSObject {
         show(placement)
         drag = nil
         stickyEdit = false
-        fold = (0, 1.5, true, FoldAnimation(placement: placement), {})
+        fold = (0, 1.5, true, foldAnimation(placement), {})
         stepFold()
+    }
+
+    private func foldAnimation(_ p: RugPlacement) -> FoldAnimation {
+        var a = FoldAnimation(placement: p)
+        if let f = floorField { a.floor = { f.sample($0, $1) } }
+        return a
     }
 
     private func stepFold() {
@@ -411,6 +417,17 @@ final class RugController: NSObject {
             if demoFrame == 90 { cloth.release() }
         case "stow":
             if demoFrame == 30 { stowRug {} }
+        case "bumpstow":
+            // 凸起上收起再鋪開（驗折疊會不會被凸起頂穿）
+            if demoFrame == 1 {
+                var icons: [SIMD2<Float>] = []
+                for k in 0..<5 { icons.append(p.point(u: 0.3, v: 0.4) + SIMD2(Float(k) * 3, 0)) }
+                icons += [p.point(u: 0.7, v: 0.65), p.point(u: 0.72, v: 0.65), p.point(u: 0.2, v: 0.75)]
+                let d = desktopBounds
+                setFloor(HeightField.fromIcons(icons, iconSize: 64, origin: d.origin, size: d.size))
+            }
+            if demoFrame == 120 { stowRug {} }
+            if demoFrame == 260 { showAnimated(p) }
         case "appear":
             if demoFrame == 30 { showAnimated(p) }
         case "edit":
